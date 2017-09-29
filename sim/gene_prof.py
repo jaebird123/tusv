@@ -25,6 +25,7 @@ class ChrmProf:
 		self.mut = _MutNode(0, len(chrm) - 1)
 		self.org.children.append(self.mut)
 		self.mut.parent = self.org
+		self.pos_blacklist = set()
 
 	# output: bgns (list of int) [n] beginning positions for each segment
 	#         ends (list of int) [n] ending positions for each segment
@@ -39,17 +40,50 @@ class ChrmProf:
 			cur = cur.r
 		return bgns, ends, cps
 
-	# duplicate region from bgn to end
-	def dup(self, bgn, end):
-		n = len(self.chrm)
-		if bgn < 0 or bgn > end or end >= n:
-			printerr('chromosome has length ' + str(n) + '. cannot dup [' + str(bgn) + ', ' + str(end) + ']')
-			return
-		if bgn > 0:
-			self.split(bgn)     # do not split if bgn is 0 (start of chrm)
-		if end + 1 < n:
-			self.split(end + 1) # do not split if end is n-1 (end of chrm)
-		
+	def rem(self, bgn, end):
+		if not self._is_in_bounds(bgn, end) or not self._is_splitable(bgn, end):
+			return False
+		self._2split(bgn, end) # split mutated and original list nodes at bgn and end positions
+
+		head, tail = _get_head_tail(self.mut, bgn, end)
+		newL = head.l
+		newR = tail.r
+
+		if newL == None:
+			self.mut = newR # change the head of the mut list to right of tail if we are removing head -> tail
+		if newL != None:
+			newL.r = newR
+		if newR != None:
+			newR.l = newL
+		head.l = None
+		tail.r = None
+
+		# remove old nodes from OrgNode children list and delete old nodes
+		while head != None:
+			head.parent.children.remove(head) # remove curent MutNode from children list of OrgNode
+			prev = head
+			head = head.r
+			del prev
+
+		# decrement bgn and end values for segments to right of deleted region
+		seg_len = end - bgn + 1
+		cur = newR
+		while cur != None:
+			cur.bgn -= seg_len
+			cur.end -= seg_len
+			cur = cur.r
+
+		s1, s2, s3 = tri_split_str(self.chrm, bgn, end)
+		self.chrm = s1 + s3
+
+		return True
+
+	# duplicate region from bgn to end. returns boolean for complete or not
+	def amp(self, bgn, end):
+		if not self._is_in_bounds(bgn, end) or not self._is_splitable(bgn, end):
+			return False
+		self._2split(bgn, end) # split mutated and original list nodes at bgn and end positions
+
 		insR, head, tail = _copy_from_to(self.mut, bgn, end) # copy list from bgn to end
 		insL = insR.r # node to go after tail
 		insR.r = head
@@ -58,7 +92,7 @@ class ChrmProf:
 			tail.r = insL
 			insL.l = tail
 
-		# increment bgn and end vales
+		# increment bgn and end values for inserted region and segments to right
 		seg_len = end - bgn + 1
 		while head != None:
 			head.bgn += seg_len
@@ -66,13 +100,20 @@ class ChrmProf:
 			head = head.r
 
 		# duplicate string
-		s1 = self.chrm[:bgn]
-		s2 = self.chrm[bgn:end+1]
-		s3 = self.chrm[end+1:]
+		s1, s2, s3 = tri_split_str(self.chrm, bgn, end)
 		self.chrm = s1 + s2 + s2 + s3
+		return True
+
+	# split bgn and end positions if needed. do not need to split at start or terminal of chromosome
+	def _2split(self, bgn, end):
+		n = len(self.chrm)
+		if bgn > 0:
+			self._split(bgn)     # do not split if bgn is 0 (start of chrm)
+		if end + 1 < n:
+			self._split(end + 1) # do not split if end is n-1 (end of chrm)
 
 	# splits node at position k in mut and org. k is bgn of right offspring
-	def split(self, k):
+	def _split(self, k):
 
 		# return if k out of bounds
 		if k == 0 or k >= len(self.chrm):
@@ -95,6 +136,31 @@ class ChrmProf:
 			mutNode2.parent = orgNode2
 			orgNode2.children.append(mutNode2)
 
+	def _is_in_bounds(self, bgn, end):
+		n = len(self.chrm)
+		if bgn < 0 or bgn > end or end >= n:
+			printerr('chromosome has length ' + str(n) + '. cannot mutate [' + str(bgn) + ', ' + str(end) + ']')
+			return False
+		return True
+
+	# returns True if bgn and end do not match any positions already in mutated list
+	def _is_splitable(self, bgn, end):
+		n = len(self.chrm)
+		if bgn != 0 and _is_already_mut_bgn(self.mut, bgn):
+			return False
+		if end + 1 < n and _is_already_mut_end(self.mut, end):
+			return False
+		return True
+
+	# returns original node that has a mutant at position pos
+	def _get_orgNode_mut_pos(pos):
+		cur = self.mut
+		while cur != None:
+			if cur.bgn >= pos and cur.end <= pos:
+				return cur.parent
+			cur = cur.r
+		return None
+
 	def pprint(self):
 		printnow('sequence: ' + str(self.chrm) + '\n')
 		printnow('lists:\n')
@@ -108,8 +174,9 @@ class ChrmProf:
 		cur = self.org
 		while cur != None:
 			kid_pos_strs = [ kid.get_pos_str() for kid in cur.children ]
-			printnow('[' + str(cur.bgn) + ',' + str(cur.end) + '] -> ' + ','.join(kid_pos_strs) + '\n')
+			printnow('[' + str(cur.bgn) + ',' + str(cur.end) + '] -> ' + ', '.join(kid_pos_strs) + '\n')
 			cur = cur.r
+		printnow('copy numbers: ' + str(self.get_copy_nums()[2]) + '\n')
 
 class _Node:
 	def pprint(self):
@@ -158,6 +225,31 @@ class _MutNode(_Node):
 
 # helpers
 
+# head is MutNode with bgn and tail is MutNode with end. must _2split() before so these exist!
+def _get_head_tail(cur, bgn, end):
+	while cur != None and cur.bgn != bgn:
+		cur = cur.r
+	head = cur
+	while cur != None and cur.end != end:
+		cur = cur.r
+	tail = cur
+	return head, tail
+
+# cur (mutNode). returns True if bgn is already in mutNode list
+def _is_already_mut_bgn(cur, bgn):
+	while cur != None:
+		if bgn == cur.bgn:
+			return True
+		cur = cur.r
+	return False
+def _is_already_mut_end(cur, end):
+	while cur != None:
+		if end == cur.end:
+			return True
+		cur = cur.r
+	return False
+
+
 # fm (int) is bgn index of one of the nodes. to (int) is end of one of the nodes
 def _copy_from_to(head, fm, to):
 	while head != None and head.bgn != fm: # make head the beggining of where to copy
@@ -181,3 +273,9 @@ def _copy_from_to(head, fm, to):
 			return curA, headB, curB
 		curA = curA.r
 	printerr('should not get here')
+
+def tri_split_str(s, bgn, end):
+	s1 = s[:bgn]
+	s2 = s[bgn:end+1]
+	s3 = s[end+1:]
+	return s1, s2, s3
