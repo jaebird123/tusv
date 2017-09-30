@@ -1,13 +1,14 @@
-#     file: gene_prof.py
+#     file: chrm_prof.py
 #   author: Jesse Eaton
 #  created: 9/27/2017
-# modified: 9/27/2017
-#  purpose: GeneProf class. GeneProf is a gene profile and contains a mutated genome with
+# modified: 9/30/2017
+#  purpose: ChrmProf class. ChrmProf is a chromosome profile and contains a mutated chrm with
 #             references to the mutations' original position. Keeps track of copy numbers.
 
 # imports
 import sys
 import copy
+import math
 
 # helpers
 def printnow(s):
@@ -25,7 +26,6 @@ class ChrmProf:
 		self.mut = _MutNode(0, len(chrm) - 1)
 		self.org.children.append(self.mut)
 		self.mut.parent = self.org
-		self.pos_blacklist = set()
 
 	# output: bgns (list of int) [n] beginning positions for each segment
 	#         ends (list of int) [n] ending positions for each segment
@@ -39,6 +39,18 @@ class ChrmProf:
 			cps.append(len(cur.children))
 			cur = cur.r
 		return bgns, ends, cps
+
+	def inv(self, bgn, end):
+		if not self._is_in_bounds(bgn, end) or not self._is_splitable(bgn, end):
+			return False
+		self._2split(bgn, end) # split mutated and original list nodes at bgn and end positions
+
+		self._rev_mut(bgn, end)
+
+		s1, s2, s3 = tri_split_str(self.chrm, bgn, end)
+		self.chrm = s1 + s2[::-1] + s3
+
+		return True
 
 	def rem(self, bgn, end):
 		if not self._is_in_bounds(bgn, end) or not self._is_splitable(bgn, end):
@@ -88,8 +100,8 @@ class ChrmProf:
 		insL = insR.r # node to go after tail
 		insR.r = head
 		head.l = insR
+		tail.r = insL
 		if insL != None:
-			tail.r = insL
 			insL.l = tail
 
 		# increment bgn and end values for inserted region and segments to right
@@ -126,6 +138,9 @@ class ChrmProf:
 			splitMut = splitMut.r
 		orgNode1 = splitMut.parent
 
+		if splitMut.bgn == k or splitMut.end == k: # should not split b/c this was already split
+			return
+
 		k = k - splitMut.bgn # make k the new length of the old node (node that will be split)
 		                     # is is now the number of nucletides in from a node where it should be split
 
@@ -160,6 +175,43 @@ class ChrmProf:
 				return cur.parent
 			cur = cur.r
 		return None
+
+	# reverses doubly linked list starting from node with bgn of bgn to node with end of end
+	def _rev_mut(self, bgn, end):
+		cur = self.mut
+		while cur != None and cur.bgn != bgn: # node with bgn should exist
+			cur = cur.r
+		ih = cur   # inner head
+		oh = cur.l # outer head
+		while cur != None and cur.end != end: # node with end should exist
+			cur = cur.r
+		it = cur   # inner tail
+		ot = cur.r # outer tail
+
+		# set region bgn and end for calculating new positions of segments
+		rgbgn, rgend = ih.bgn, it.end
+		
+		cur = ih
+		while cur != ot: # reverse linked list ih -> ... -> it
+			prv = cur.l
+			nxt = cur.r
+			cur.l = nxt
+			cur.r = prv
+			pos_diff = _get_inv_pos_diff(rgbgn, rgend, cur.bgn, cur.end)
+			cur.bgn += pos_diff
+			cur.end += pos_diff
+			cur.is_inv = not cur.is_inv
+			cur = nxt
+
+		it.l = oh      # connect head and tail of internally reversed linked list to outer list
+		ih.r = ot
+		if oh != None:
+			oh.r = it
+		if ot != None:
+			ot.l = ih
+
+		if oh == None:
+			self.mut = it # set head of mut if we inverted start of list
 
 	def pprint(self):
 		printnow('sequence: ' + str(self.chrm) + '\n')
@@ -203,25 +255,35 @@ class _OrgNode(_Node):
 		self.r = _OrgNode(self.bgn + k, self.end)
 		self.r.r = r    # set right of new node to the old node's old right
 		self.r.l = self # set left of new node to old node (self)
+		if r != None:
+			r.l = self.r
 		self.end = self.bgn + k - 1
 		return self.r
 
 class _MutNode(_Node):
-	def __init__(self, bgn, end):
+	def __init__(self, bgn, end, is_inv = False):
 		self.parent = None
 		self.l = None
 		self.r = None
 		self.bgn = bgn
 		self.end = end
+		self.is_inv = is_inv
 
 	# returns pointer to new sibling on right. k (int) means k + self.begin is bgn of new sibling
 	def split(self, k):
 		r = self.r
-		self.r = _MutNode(self.bgn + k, self.end)
+		self.r = _MutNode(self.bgn + k, self.end, self.is_inv)
 		self.r.r = r    # set right of new node to the old node's old right
 		self.r.l = self # set left of new node to old node (self)
+		if r != None:
+			r.l = self.r
 		self.end = self.bgn + k - 1
 		return self.r
+
+	def get_pos_str(self):
+		if self.is_inv:
+			return 'i[' + str(self.bgn) + ',' + str(self.end) + ']'
+		return '[' + str(self.bgn) + ',' + str(self.end) + ']'
 
 # helpers
 
@@ -249,7 +311,6 @@ def _is_already_mut_end(cur, end):
 		cur = cur.r
 	return False
 
-
 # fm (int) is bgn index of one of the nodes. to (int) is end of one of the nodes
 def _copy_from_to(head, fm, to):
 	while head != None and head.bgn != fm: # make head the beggining of where to copy
@@ -273,6 +334,20 @@ def _copy_from_to(head, fm, to):
 			return curA, headB, curB
 		curA = curA.r
 	printerr('should not get here')
+
+#  input: rgbgn (int) region beginning. position of bgn for first node of list to be inverted
+#         rgend (int) region ending.    position of end for last  node of list to be inverted
+#         sgbgn (int) segment beginning. bgn of current segment being flipped
+#         sgend (int) segment ending.    end of current segment being flipped
+# output: d (int) change in position to be applied to bgn and end of current node
+def _get_inv_pos_diff(rgbgn, rgend, sgbgn, sgend):
+	rglen = rgend - rgbgn + 1                            # region length
+	sglen = sgend - sgbgn + 1                            # segment length
+	mid = int(math.ceil(float(rglen) / 2.0) + rgbgn - 1) # position of midpoint of region
+	l = mid - sgend                                      # distance from midpoint to segment ending
+	if rglen % 2 == 0: # even
+		return 2 * l + sglen
+	return 2 * l + sglen - 1
 
 def tri_split_str(s, bgn, end):
 	s1 = s[:bgn]

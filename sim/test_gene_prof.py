@@ -1,6 +1,6 @@
-import gene_prof as gp
+import chrm_prof as chpr
 
-cp = gp.ChrmProf("AAABBBCCCDDDEEEFFF")
+cp = chpr.ChrmProf("AAABBBCCCDDDEEEFFF")
 print ''
 
 print cp.amp(4,10)
@@ -23,35 +23,36 @@ print cp.rem(2, 8)
 cp.pprint()
 print ''
 
+print cp.amp(9, 25)
+cp.pprint()
+print ''
 
+cp2 = chpr.ChrmProf("RRRRRSSSSSTTTTTUUUUUVVVVV")
+print ''
 
+print cp2.amp(5, 14)
+cp2.pprint()
+print ''
 
+print cp2.inv(3, 20)
+cp2.pprint()
+print ''
 
-# cp.pprint()
+print cp2.inv(15, 30)
+cp2.pprint()
+print ''
 
-# print '\n- - - - -\n'
+print cp2.rem(10, 16)
+cp2.pprint()
+print ''
 
-# cp.amp(3, 8)
-# cp.pprint()
+cp3 = chpr.ChrmProf("XXXXYYYYZZZZ")
+print ''
 
-# print '\n- - - - -\n'
+print cp3.inv(0, 6)
+cp3.pprint()
+print ''
 
-# cp.amp(4, 15)
-# cp.pprint()
-
-# print '\n\n'
-# bgns, ends, cps = cp.get_copy_nums()
-# print bgns
-# print ends
-# print cps
-
-# print '\n- - - - -\n'
-
-# cp.amp(1, 28)
-# cp.pprint()
-
-# print '\n\n'
-# bgns, ends, cps = cp.get_copy_nums()
-# print bgns
-# print ends
-# print cps
+print cp3.inv(4, 11)
+cp3.pprint()
+print ''
