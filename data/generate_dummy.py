@@ -50,10 +50,10 @@ def main(argv):
 	# sample 2
 	file2 = outputFolder + '/sample2.vcf'
 	vcf_writer2 = vcf.Writer(open(file2, 'w'), vcf_reader)
-	vcf_writer2.write_record(generate_sv('1', 20000000, 'sv0', '1', 50000000, True, True, str(), True, 'sv2', '1|0', '1', 13, 97))
-	vcf_writer2.write_record(generate_sv('1', 50000000, 'sv2', '1', 20000000, True, True, str(), True, 'sv0', '1|0', '1', 13, 113))
-	vcf_writer2.write_record(generate_sv('1', 20000001, 'sv1', '1', 50000001, True, False, str(), True, 'sv3', '1|0', '1', 17, 98))
-	vcf_writer2.write_record(generate_sv('1', 50000001, 'sv3', '1', 20000001, True, False, str(), True, 'sv1', '1|0', '1', 17, 104))
+	vcf_writer2.write_record(generate_sv('1', 20000000, 'sv0', '1', 50000000, True, False, str(), True, 'sv2', '1|0', '1', 13, 97))
+	vcf_writer2.write_record(generate_sv('1', 50000000, 'sv2', '1', 20000000, True, False, str(), True, 'sv0', '1|0', '1', 13, 113))
+	vcf_writer2.write_record(generate_sv('1', 20000001, 'sv1', '1', 50000001, True, True, str(), True, 'sv3', '1|0', '1', 17, 98))
+	vcf_writer2.write_record(generate_sv('1', 50000001, 'sv3', '1', 20000001, True, True, str(), True, 'sv1', '1|0', '1', 17, 104))
 	vcf_writer2.write_record(generate_cnv('1', 1, 'cnv0', 'CNV', 20000000, '1|1', [1, 1]))
 	vcf_writer2.write_record(generate_cnv('1', 20000001, 'cnv1', 'CNV', 40000000, '1|1', [3, 1]))
 	vcf_writer2.write_record(generate_cnv('1', 40000001, 'cnv2', 'CNV', 50000000, '1|1', [1, 1]))
@@ -83,22 +83,6 @@ def main(argv):
 #                           eg. alts[0] = ]1:149965077]
 #                               'chr' = str(1), 'connectingSequence' = str(), 'orientation' = True, 'pos' = int(149965077)
 #                               'remoteOrientation' = False, 'type' = 'BND', 'withinMainAssembly' = True
-				
-				# vcf.model._Breakend:
-				# class vcf.parser._Breakend(chr, pos, orientation, remoteOrientation, connectingSequence, withinMainAssembly, **kwargs)[source]
-				# A breakend which is paired to a remote location on or off the genome
-
-				# connectingSequence = None
-				# The breakpoint's connecting sequence.
-
-				# orientation = None
-				# The orientation of breakend. If the sequence 3' of the breakend is connected, True, else if the sequence 5' of the breakend is connected, False.
-
-				# remoteOrientation = None
-				# The orientation of breakend's mate. If the sequence 3' of the breakend's mate is connected, True, else if the sequence 5' of the breakend's mate is connected, False.
-
-				# withinMainAssembly = None
-				# If the breakend mate is within the assembly, True, else False if the breakend mate is on a contig in an ancillary assembly file.
 # qual = None
 # filter = list()
 # type(info): dict, info['SVTYPE'] = 'BND', info['MATEID'] = mate_sv_rec_id (str)
