@@ -23,11 +23,18 @@ def main(argv):
 	random.seed(1)
 	np.random.seed(1)
 	m = 3  # samples
-	n = 4  # leaves
+	n = 3  # leaves
 	l = 6 # breakpoints
 	r = 10 # segments
 	c_max = 7 # maximum copy number
 	f_scale = 5
+
+	# m = 2  # samples
+	# n = 3  # leaves
+	# l = 50 # breakpoints
+	# r = 100 # segments
+	# c_max = 10 # maximum copy number
+	# f_scale = 3
 
 	F = f_scale * np.random.rand(m, l + r)
 	U = gen_U(m, n)
@@ -38,16 +45,16 @@ def main(argv):
 	lamb = 1.0
 	alpha = 2.0
 
-	test_get_U(F, n, l, r)
-	test_get_C(F, Q, G, A, H, n, c_max, lamb, alpha)
-	exit()
+	# test_get_U(F, n, l, r)
+	# test_get_C(F, Q, G, A, H, n, c_max, lamb, alpha)
+	# exit()
 
 	num_steps = 50
 	for i in xrange(0, num_steps):
 		if i > 0:
 			prevC = C
 			prevU = U
-		C = sv.get_C(F, U, Q, A, H, n, c_max, lamb, alpha)
+		C = sv.get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha)
 		U = sv.get_U(F, C, n)
 		if i > 0:
 			diffC = abs((C-prevC)).sum()

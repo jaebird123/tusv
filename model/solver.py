@@ -75,14 +75,16 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha):
 	l, r = Q.shape
 	C = cvx.Int(2 * n - 1, l + r)
 
-	# E = cvx.Int(2 * n - 1, 2 * n - 1)
+	E = cvx.Int(2 * n - 1, 2 * n - 1) # binary edge indicators
+	R = cvx.Int(2 * n - 1, 2 * n - 1) # rho. cost across each edge
 
 	# add constraints
 	cst = []
 	cst += _get_copy_num_constraints(C, c_max, l, r, n)
-	# cst += _get_tree_constraints(E, n)
+	cst += _get_tree_constraints(E, n)
+	cst += _get_cost_constraints(R, C, E, n, l, r, c_max)
 
-	obj = cvx.Minimize(cvx.sum_entries(cvx.abs(F - U * C)))
+	obj = cvx.Minimize(cvx.sum_entries(cvx.abs(F - U * C)) + lamb * cvx.sum_entries(R))
 	prb = cvx.Problem(obj, cst)
 
 	prb.solve()
@@ -104,23 +106,45 @@ def _get_copy_num_constraints(C, c_max, l, r, n):
 
 def _get_tree_constraints(E, n):
 	cst = [0 <= E, E <= 1]
-	
-	# root
-	for i in xrange(0, 2*n-1):
-		cst.append(E[i, 2*n-2] == 0)
-	
-	# leaves
+
+	# no edges from descendents to ancestors
+	for j in xrange(n, 2*n-1):
+		for i in xrange(n, j+1): # no self edges
+			cst.append(E[i, j] == 0)
+
+	# no outgoing edges for leaves
 	for i in xrange(0, n):
 		for j in xrange(0, 2*n-1):
 			cst.append(E[i, j] == 0)
 
-	# non-root incoming edges
-	E_ir = E[:2*n-2, :] # E incoming rootless
-	for j in xrange(0, 2*n-1):
-		cst.append(cvx.sum_entries(E_ir[:, j]) == 1)
-
-	# internal node outgoing edges
+	# internal nodes have 2 outgoing edges
 	for i in xrange(n, 2*n-1):
-		cst.append(cvx.sum_entries(E[i, :]) == 2)
+		cst.append(cvx.sum_entries(E[i, :i]) == 2)
+
+	# only one edge from ancestors allowed
+	for j in xrange(0, 2*n-2):
+		i_low = max(n, j+1)
+		cst.append(cvx.sum_entries(E[i_low:, j]) == 1)
+
+	return cst
+
+def _get_cost_constraints(R, C, E, n, l, r, c_max):
+	N = 2*n-1
+	X = {}
+	for s in xrange(0, r): # x_i,j,s is absolute difference for seg s from node i to j if edge (i,j) exists
+		X[s] = cvx.Int(N, N)
 	
+	cst = []
+	for s, _ in X.iteritems():
+		cst.append(0 <= X[s])                 # all x_ijs must be >= 0
+		for i in xrange(0, N):
+			for j in xrange(0, N):
+				cst.append(X[s][i, j] <= c_max * E[i, j]) # x_ijs for all segments set to zero if edge (i, j) doesnt exist
+				cst.append(X[s][i, j] >= C[i, s+l] - C[j, s+l] - c_max * (1-E[i, j])) # abs val if edge exists
+				cst.append(X[s][i, j] >= C[j, s+l] - C[i, s+l] - c_max * (1-E[i, j]))
+
+	for i in xrange(0, N):
+		for j in xrange(0, N):
+			cst.append(R[i, j] == sum([ X[s][i, j] for s in xrange(0, r) ]))
+
 	return cst
