@@ -13,6 +13,7 @@
 import sys      # for command line arguments
 import os       # for manipulating files and folders
 import argparse # for command line arguments
+import math     # it's math. we're gonna need it
 import cvxpy as cvx
 import numpy as np
 
@@ -22,6 +23,7 @@ import numpy as np
 # # # # # # # # # # # # #
 
 U_MIN = 1*10**(-5)
+MAX_PRB_ITERS = 10000
 
 
 # # # # # # # # # # # # #
@@ -84,11 +86,18 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha):
 	cst += _get_tree_constraints(E, n)
 	cst += _get_cost_constraints(R, C, E, n, l, r, c_max)
 
+	# REMOVEE COMMENT LATER!!!!
+	Y = cvx.Int(2*n-1, l+r)
+	cst += _bin(C, Y, 2*n-1, l+r, c_max)
+
 	obj = cvx.Minimize(cvx.sum_entries(cvx.abs(F - U * C)) + lamb * cvx.sum_entries(R))
+	# obj = cvx.Minimize(cvx.sum_entries(cvx.abs(F - U * C)))
 	prb = cvx.Problem(obj, cst)
 
-	prb.solve()
+	prb.solve(max_iters = MAX_PRB_ITERS)
+	print prb.value
 
+	print E.value.round()
 	return C.value.round()
 
 def _get_copy_num_constraints(C, c_max, l, r, n):
@@ -107,24 +116,30 @@ def _get_copy_num_constraints(C, c_max, l, r, n):
 def _get_tree_constraints(E, n):
 	cst = [0 <= E, E <= 1]
 
-	# no edges from descendents to ancestors
-	for j in xrange(n, 2*n-1):
-		for i in xrange(n, j+1): # no self edges
-			cst.append(E[i, j] == 0)
-
 	# no outgoing edges for leaves
-	for i in xrange(0, n):
-		for j in xrange(0, 2*n-1):
-			cst.append(E[i, j] == 0)
+	cst.append(E[:n, :] == 0)
+
+	# now only build constraints for internal nodes
+
+	# no edges from descendents to root
+	cst.append(E[n : 2*n-1, 2*n-2] == 0)
+
+	# no edges to self (only needed for non leaf, non root nodes b/c no constraints yet)
+	for i in xrange(n, 2*n-2):
+		cst.append(E[i, i] == 0)
 
 	# internal nodes have 2 outgoing edges
 	for i in xrange(n, 2*n-1):
-		cst.append(cvx.sum_entries(E[i, :i]) == 2)
+		cst.append(cvx.sum_entries(E[i, :]) == 2)
 
-	# only one edge from ancestors allowed
+	# only one edge from ancestors allowed (for every node but root)
 	for j in xrange(0, 2*n-2):
-		i_low = max(n, j+1)
-		cst.append(cvx.sum_entries(E[i_low:, j]) == 1)
+		cst.append(cvx.sum_entries(E[n:, j]) == 1)
+
+	# no 2 node cycles
+	for i in xrange(n, 2*n-1):
+		for j in xrange(n, 2*n-1):
+			cst.append(E[i, j] + E[j, i] < 2)
 
 	return cst
 
@@ -140,11 +155,41 @@ def _get_cost_constraints(R, C, E, n, l, r, c_max):
 		for i in xrange(0, N):
 			for j in xrange(0, N):
 				cst.append(X[s][i, j] <= c_max * E[i, j]) # x_ijs for all segments set to zero if edge (i, j) doesnt exist
-				cst.append(X[s][i, j] >= C[i, s+l] - C[j, s+l] - c_max * (1-E[i, j])) # abs val if edge exists
-				cst.append(X[s][i, j] >= C[j, s+l] - C[i, s+l] - c_max * (1-E[i, j]))
+				cst.append(X[s][i, j] >= C[i, s+l] - C[j, s+l] - (c_max+1) * (1-E[i, j])) # abs val if edge exists
+				cst.append(X[s][i, j] >= C[j, s+l] - C[i, s+l] - (c_max+1) * (1-E[i, j]))
 
+	# define R as cost of transforming copy number profile (cnp) from node i to cnp fr j
 	for i in xrange(0, N):
 		for j in xrange(0, N):
-			cst.append(R[i, j] == sum([ X[s][i, j] for s in xrange(0, r) ]))
+			cst.append(R[i, j] >= sum([ X[s][i, j] for s in xrange(0, r) ]))
+
+	return cst
+
+#  input: X (cvx.Int) [m, n] matrix to binarize
+#         Y (cvx.Int) [m, n] matrix to add constraints to. this will be the binary matrix version of X
+#         m, n (int) number of rows and cols respectively for both inputs X and Y
+#         x_max (int) maximum allowed value in input X. this is used to create bit representation of X
+# output: cst (list of cvx.Constraint) constraints making Y vals = 1 iff X > 0 and Y vals == 0 otherwise
+def _bin(X, Y, m, n, x_max):
+	num_bits = int(math.floor(math.log(x_max, 2))) + 2
+	cst = [0 <= Y, Y <= 1]
+
+	Z = {}
+	for b in xrange(0, num_bits): # create binary variables Z
+		Z[b] = cvx.Int(m, n)
+		cst.append(0 <= Z[b])
+		cst.append(Z[b] <= 1)
+	for i in xrange(0, m):
+		for j in xrange(0, n):
+
+			# set Z as binary representation of X
+			cst.append( sum([ Z[b][i, j] * 2**b for b in xrange(0, num_bits) ]) == X[i, j] )
+
+			# constrain Y to be 1 if any bits are 1
+			# for b in xrange(0, num_bits):
+			# 	cst.append( Z[b][i, j] <= Y[i, j] )
+
+			# # constrain Y to be 0 if all bits are 0
+			# cst.append( Y[i, j] <= sum([ Z[b][i, j] for b in xrange(0, num_bits) ]) )
 
 	return cst
