@@ -9,9 +9,11 @@
 import sys
 import copy
 import math
+import random
 
 # helpers
 def printnow(s):
+	s = str(s)
 	sys.stdout.write(s)
 	sys.stdout.flush()
 def printerr(s):
@@ -39,6 +41,50 @@ class ChrmProf:
 			cps.append(len(cur.children))
 			cur = cur.r
 		return bgns, ends, cps
+
+	#  input: cov (int) coverage. number of reads the average position should have mapping to it
+	#         read_len (int) length of a single random read
+	# output: svs (dict) key is breakpoint tuple. this contains position (int) and isLeft (bool) if segment extends left
+	#                    val is dict containing the following key-value pairs
+	#                        k: mate,       v: (breakpoint tuple) same (pos, isLeft) tuple but for mate
+	#                        k: mated_reads v: (int) number of reads containing this breakpoint and mate breakpoint
+	#                        k: total_reads v: (int) number of total reads ()
+	def get_sv_read_nums(self, cov, read_len):
+		if read_len % 2 == 0: # ensure read length is odd (so it has a center)
+			read_len += 1
+		n = len(self.chrm)
+		num_reads = int(math.ceil(float(n) / float(read_len) * float(cov)))
+		positions = range(0, n)
+		ps = [ random.choice(positions) for _ in xrange(0, num_reads) ] # get center positions of reads
+		ps.sort()
+
+		d = read_len / 2 # distance to be subtracted / added to get to position of edge of read
+		cur = self.mut
+		svs = {}
+		i = 1
+		while cur != None and ps:
+			p = ps.pop(0) # remove next position from list
+			pl, pr = p - d, p + d
+
+			if cur.end < p:
+				cur = cur.r
+			if cur == None:
+				break
+
+			if _is_between(cur.bgn, pl, pr):
+				_add_sv_to_dict(svs, cur, True)
+			if _is_between(cur.end, pl, pr):
+				_add_sv_to_dict(svs, cur, False)
+
+		# remove any splits that are not actually breakpoints
+		keys_to_remove = []
+		for k, v in svs.items():
+			if 'mate' not in v:
+				keys_to_remove.append(k)
+		for k in keys_to_remove:
+			del svs[k]
+		
+		return svs
 
 	def inv(self, bgn, end):
 		if not self._is_in_bounds(bgn, end) or not self._is_splitable(bgn, end):
@@ -354,3 +400,69 @@ def tri_split_str(s, bgn, end):
 	s2 = s[bgn:end+1]
 	s3 = s[end+1:]
 	return s1, s2, s3
+
+# returns True if x is between a and b inclusive
+def _is_between(x, a, b):
+	return (a <= x) and (x <= b)
+
+#  input: cur (MutNode) current mutant node the read maps to
+#         isBgn (bool) True if read mapped to cur.bgn. False if mapped to cur.end
+# output: pos (int) mate OrgNode's bgn or end position (depends on isBgn). this is position of mate bp
+#         isLeft (bool) mate OrgNode's orientation. True if cur was found next to end on mate. False if
+#                                                           cur was found next to bgn on mate
+#         isAdj (bool) True if mate is adjacent to cur in original genome. this will not increment num mated reads
+def _get_mated_pos(cur, isBgn):
+	mate = cur.r
+	if isBgn:
+		mate = cur.l
+
+	if mate == None:
+		return None, None, None
+
+	curPos = _get_org_pos(cur, isBgn)
+	matePos = _get_org_pos(mate, not isBgn)
+
+	isLeft = mate.parent.end == matePos
+	isAdj = abs(curPos - matePos) == 1
+
+	return matePos, isLeft, isAdj
+
+# node (MuteNode), isBgn (bool) True if considering left pos on mutant. returns position of org node
+def _get_org_pos(node, isBgn):
+	if node.is_inv:
+		isBgn = not isBgn
+	if isBgn:
+		return node.parent.bgn
+	return node.parent.end
+
+def _get_cur_pos(cur, isBgn):
+	oCur = cur.parent
+	isLeft = not isBgn
+	if cur.is_inv:
+		isLeft = not isLeft
+	if isLeft:
+		return oCur.end, isLeft
+	return oCur.bgn, isLeft
+
+def _add_sv_to_dict(svs, cur, isBgn):
+	matePos, mateIsLeft, isAdj = _get_mated_pos(cur, isBgn)
+	curPos, curIsLeft = _get_cur_pos(cur, isBgn)
+	if matePos == None:
+		return
+
+	curTup = (curPos, curIsLeft)
+	mateTup = (matePos, mateIsLeft)
+
+	if matePos != None:
+		if curTup not in svs:
+			svs[curTup] = {'total_reads': 0, 'mated_reads': 0}
+
+		if mateTup not in svs:
+			svs[mateTup] = {'total_reads': 0, 'mated_reads': 0}
+
+		svs[curTup]['total_reads'] += 1
+
+		if not isAdj:
+			svs[curTup]['mated_reads'] += 1
+			svs[curTup]['mate'] = mateTup
+			svs[mateTup]['mate'] = curTup
