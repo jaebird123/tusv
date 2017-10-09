@@ -86,6 +86,19 @@ class ChrmProf:
 		
 		return svs
 
+	def deepcopy(self):
+		c = ChrmProf(self.chrm)
+		c.org, muts = _deepcopy_org(self.org)
+		muts = sorted(muts, key = lambda x: x.bgn)
+		n = len(muts)
+		for i in xrange(0, n):
+			if i != 0:
+				muts[i].l = muts[i-1]
+			if i != n-1:
+				muts[i].r = muts[i+1]
+		c.mut = muts[0]
+		return c
+
 	def inv(self, bgn, end):
 		if not self._is_in_bounds(bgn, end) or not self._is_splitable(bgn, end):
 			return False
@@ -306,6 +319,9 @@ class _OrgNode(_Node):
 		self.end = self.bgn + k - 1
 		return self.r
 
+	def copy(self):
+		return _OrgNode(self.bgn, self.end)
+
 class _MutNode(_Node):
 	def __init__(self, bgn, end, is_inv = False):
 		self.parent = None
@@ -314,6 +330,9 @@ class _MutNode(_Node):
 		self.bgn = bgn
 		self.end = end
 		self.is_inv = is_inv
+
+	def copy(self):
+		return _MutNode(self.bgn, self.end, self.is_inv)
 
 	# returns pointer to new sibling on right. k (int) means k + self.begin is bgn of new sibling
 	def split(self, k):
@@ -466,3 +485,35 @@ def _add_sv_to_dict(svs, cur, isBgn):
 			svs[curTup]['mated_reads'] += 1
 			svs[curTup]['mate'] = mateTup
 			svs[mateTup]['mate'] = curTup
+
+#
+#   DEEP COPY
+#
+
+#  input: headA (OrgNode) old head
+# output: headB (OrgNode) new head
+#         muts (list of MutNode) list of all MutNodes created as children for OrgNodes
+def _deepcopy_org(headA):
+	curA = headA
+	i = 0
+	prvB = None
+	muts = []
+	while curA != None:
+		curB = curA.copy()
+		if i == 0:
+			headB = curB
+			i += 1
+		curB.l = prvB
+		if prvB != None:
+			prvB.r = curB
+		prvB = curB
+
+		# create all mut children
+		for cA in curA.children:
+			cB = cA.copy()
+			cB.parent = curB
+			curB.children.append(cB)
+			muts.append(cB)
+
+		curA = curA.r
+	return headB, muts

@@ -1,5 +1,6 @@
 import chrm_prof as chpr
 import pprint
+pp = pprint.PrettyPrinter(indent = 2)
 
 cp = chpr.ChrmProf("AAABBBCCCDDDEEEFFF")
 print ''
@@ -123,6 +124,19 @@ cp5.pprint()
 print ''
 
 dic = cp5.get_sv_read_nums(cov, read_len)
-pp = pprint.PrettyPrinter(indent = 2)
-
 pp.pprint(dic)
+print ''
+
+# test deepcopy() function
+
+cp5_copied = cp5.deepcopy()
+cp5_copied.pprint()
+print ''
+
+print cp5_copied.inv(2, 15)
+cp5_copied.pprint()
+print ''
+
+dic = cp5_copied.get_sv_read_nums(cov, read_len)
+pp.pprint(dic)
+print ''
