@@ -74,11 +74,14 @@ def get_U(F, C, n):
 #         c_max (int) maximum allowed copy number for any element in output C
 #         lamb (float) regularization term to weight total tree cost against unmixing error
 #         alpha (float) number of standard deviations allowed for estimator of breakpoint frequency
-# output: C (np.array of int) [2n-1, l+r] int copy number c_k,s of mutation s in clone k
+# output: obj_val (float) objective value of solution
+#         C (np.array of int) [2n-1, l+r] int copy number c_k,s of mutation s in clone k
+#         E (np.array of int) [2n-1, 2n-1] e_i,j == 1 iff edge (i,j) is in tree. 0 otherwise
 #         err_msg (None or str) None if no error occurs. str with error message if one does
 #  notes: l (int) is number of structural variants. r (int) is number of copy number regions
 def get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha):
 	l, r = Q.shape
+	m, _ = U.shape
 	C = cvx.Int(2 * n - 1, l + r)
 
 	E = cvx.Int(2 * n - 1, 2 * n - 1) # binary edge indicators
@@ -93,19 +96,20 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha):
 	cst += _get_cost_constraints(R, C, E, n, l, r, c_max)
 	cst += _bin(C, C_bin, 2*n-1, l+r, c_max)
 	cst += _get_bp_appearance_constraints(C_bin, W, E, G, n, l)
-	# cst += _get_sum_condition_constraints(C_bin, W)
+	cst += _get_sum_condition_constraints(C_bin, W, U, m, n, l)
 
 	obj = cvx.Minimize(cvx.sum_entries(cvx.abs(F - U * C)) + lamb * cvx.sum_entries(R))
 	prb = cvx.Problem(obj, cst)
 
-	prb.solve(solver = cvx.GUROBI)
-	print prb.value
-	print type(prb.value)
-	print prb.status
-	print type(prb.status)
+	try:
+		prb.solve(solver = cvx.GUROBI, verbose = True)
+	except:
+		return None, None, None, "ERROR: solving with " + str(cvx.GUROBI) + " did not work"
 
-	print E.value.round()
-	return C.value.round() # TODO: RETURN err_msg as well
+	if prb.status == cvx.OPTIMAL:
+		return prb.value, C.value.round(), E.value.round(), None
+
+	return prb.value, None, None, "error when solving: " + str(prb.status)
 
 
 # # # # # # # # # # # # # # # # # # # # # # # #
@@ -151,7 +155,7 @@ def _get_tree_constraints(E, n):
 	# no 2 node cycles
 	for i in xrange(n, 2*n-1):
 		for j in xrange(n, 2*n-1):
-			cst.append(E[i, j] + E[j, i] < 2)
+			cst.append(E[i, j] + E[j, i] <= 1)
 
 	return cst
 
@@ -219,10 +223,49 @@ def _get_bp_appearance_constraints(C_bin, W, E, G, n, l):
 
 #  input: C_bin (cvx.Int) [2n-1, l+r] binary copy number c_k,s of mutation s in clone k. is 0 if cp# is 0. 1 otherwise
 #         W (dict of cvx.Int) key is bp_index (int). val is w_i,j (cvx.Int) == 1 iff bp b appears on edge (i,j)
+#         U (np.array of float) [m, 2n-1] 0 <= u_p,k <= 1. percent of sample p made by clone k
+#         m (int) number of samples
+#         n (int) number of leaves in tree. total number of nodes is 2n-1
+#         l (int) number of breakpoints
 # output: cst (list of cvx.Constraint)
 #   does: demands breakpoints occuring higher in the tree have larger percent of cells with this bp must he larger
-def _get_sum_condition_constraints(C_bin, W):
+def _get_sum_condition_constraints(C_bin, W, U, m, n, l):
+	N = 2*n-1
 	cst = []
+
+	W_node = {}              # w_node_j,b == 1 iff bp b appears at node j. 0 otherwise
+	for b in xrange(0, l):
+		W_node[b] = cvx.Int(N)
+		for j in xrange(0, N):
+			cst.append(W_node[b][j] == sum([ W[b][i, j] for i in xrange(0, N) ]))
+
+	Phi = cvx.Variable(m, l)          # phi_p,b is percent of cells in sample p with breakpoint b
+	cst.append(Phi == U * C_bin[:, :l])
+
+	Y = {}                        # y_i,j,s,t == 0 iff breakpoint s occurs at node i then t immediately occurs
+	for i in xrange(0, N):        #   at node j. > 0 otherwise
+		for j in xrange(0, N):
+			Y[(i, j)] = cvx.Int(l, l)
+			for s in xrange(0, l):
+				for t in xrange(0, l):
+					cst.append(Y[i, j][s, t] == 2 - W_node[s][i] - W[t][i, j])
+
+	Y_bin = {}                    # y_bin_i,j,s,t is binary version of y. so now any > 0 is 1
+	for i in xrange(0, N):
+		for j in xrange(0, N):
+			Y_bin[(i, j)] = cvx.Int(l, l)
+			cst += _bin(Y[(i, j)], Y_bin[(i, j)], l, l, 2)
+
+	D = cvx.Int(l, l)             # variant parent indicator d_s,t == 1 iff breakpoint s appears in parent
+	for s in xrange(0, l):        #   of node where breakpoint t appears
+		for t in xrange(0, l):
+			cst.append(D[s, t] == sum([ (1 - Y_bin[(i, j)][s, t]) for i in xrange(0, N) for j in xrange(0, N) ]))
+
+	for p in xrange(0, m):        # cell fraction of breakpoint in parent must be > cell frac in child
+		for s in xrange(0, l):
+			for t in xrange(0, l):
+				cst.append(Phi[p, s] >= Phi[p, t] - 1 + D[s, t] - 10)
+
 	return cst
 
 

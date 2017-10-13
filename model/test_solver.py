@@ -3,18 +3,6 @@ import random
 import sys
 import numpy as np
 
-# F = f_scale * np.random.rand(m, l + r)
-# U = np.random.rand(m, 2*n-1)
-# Q = np.array([ np.arange(0, r) == random.randint(0, r) for bp in xrange(l) ])
-# A = np.random.binomial(100, 0.25, [m, l])
-# H = 100 * np.ones([m, l])
-
-# lamb = 1.0
-# alpha = 2.0
-
-# C = sv.get_C(F, U, Q, A, H, n, c_max, lamb, alpha)
-# print C
-
 def printnow(s):
 	sys.stdout.write(s)
 	sys.stdout.flush()
@@ -22,19 +10,12 @@ def printnow(s):
 def main(argv):
 	random.seed(1)
 	np.random.seed(1)
-	m = 3  # samples
-	n = 4  # leaves
-	l = 6 # breakpoints
-	r = 10 # segments
-	c_max = 7 # maximum copy number
+	m = 3       # samples
+	n = 4       # leaves
+	l = 6       # breakpoints
+	r = 10      # segments
+	c_max = 7   # maximum copy number
 	f_scale = 5
-
-	# m = 2  # samples
-	# n = 3  # leaves
-	# l = 50 # breakpoints
-	# r = 100 # segments
-	# c_max = 10 # maximum copy number
-	# f_scale = 3
 
 	F = f_scale * np.random.rand(m, l + r)
 	U = gen_U(m, n)
@@ -43,20 +24,13 @@ def main(argv):
 	A = np.random.binomial(100, 0.25, [m, l])
 	H = 100 * np.ones([m, l])
 	lamb = 1.0
-	# lamb = 1.0 / 10.0
 	alpha = 2.0
 
 	test_get_U(F, n, l, r)
 	test_get_C(F, Q, G, A, H, n, c_max, lamb, alpha)
+	print G
+
 	exit()
-
-
-
-
-
-
-
-
 
 	num_steps = 50
 	for i in xrange(0, num_steps):
@@ -116,8 +90,14 @@ def test_get_C(F, Q, G, A, H, n, c_max, lamb, alpha):
 	m = len(F)
 	U = gen_U(m, n)
 	printnow('\ntest_get_C starting\n')
-	C = sv.get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha)
-	printnow(str(C) + '\n')
+	obj_val, C, E, err_msg = sv.get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha)
+
+	if err_msg != None:
+		printnow(err_msg + '\n')
+	else:
+		printnow(str(C) + '\n')
+		printnow(str(E) + '\n')
+
 	printnow('test_get_C complete\n')
 
 
