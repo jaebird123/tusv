@@ -24,7 +24,6 @@ import gurobipy
 # # # # # # # # # # # # #
 
 U_MIN = 1*10**(-5)
-MAX_PRB_ITERS = 10000
 
 
 # # # # # # # # # # # # #
@@ -59,8 +58,6 @@ def get_U(F, C, n):
 	rowsums = np.sum(U, 1)
 	for i in xrange(m):
 		U[i, :] = U[i, :] / rowsums[i]
-
-	print cvx.installed_solvers()
 
 	return U
 
@@ -97,12 +94,13 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha):
 	cst += _bin(C, C_bin, 2*n-1, l+r, c_max)
 	cst += _get_bp_appearance_constraints(C_bin, W, E, G, n, l)
 	cst += _get_sum_condition_constraints(C_bin, W, U, m, n, l)
+	cst += _get_bp_frequency_constraints(C, U, Q, A, H, m, n, l, r, alpha)
 
 	obj = cvx.Minimize(cvx.sum_entries(cvx.abs(F - U * C)) + lamb * cvx.sum_entries(R))
 	prb = cvx.Problem(obj, cst)
 
 	try:
-		prb.solve(solver = cvx.GUROBI, verbose = True)
+		prb.solve(solver = cvx.GUROBI)
 	except:
 		return None, None, None, "ERROR: solving with " + str(cvx.GUROBI) + " did not work"
 
@@ -265,6 +263,40 @@ def _get_sum_condition_constraints(C_bin, W, U, m, n, l):
 		for s in xrange(0, l):
 			for t in xrange(0, l):
 				cst.append(Phi[p, s] >= Phi[p, t] - 1 + D[s, t] - 10)
+
+	return cst
+
+#  input: C (cvx.Int) [2n-1, l+r] copy number c_k,s of mutation s in clone k
+#         U (np.array of float) [m, 2n-1] 0 <= u_p,k <= 1. percent of sample p made by clone k
+#         Q (np.array of 0 or 1) [l, r] q_b,s == 1 if breakpoint b is in segment s. 0 otherwise
+#         A (np.array of int) [m, l] a_p,b is number of mated reads for breakpoint b in sample p
+#         H (np.array of int) [m, l] h_p,b is number of total reads for breakpoint b in sample p
+#         m (int) number of samples
+#         n (int) number of leaves in tree. total number of nodes is 2n-1
+#         l (int) number of breakpoints
+#         r (int) number of copy number segments
+#         alpha (float) number of standard deviations allowed for estimator of breakpoint frequency
+# output: cst (list of cvx.Constraint)
+#   does: forces the ratio copy number of breakpoint to copy number of segment containing breakpoint
+#           (reguardless of whether it is mated or not) to be approximately the breakpoint frequency
+def _get_bp_frequency_constraints(C, U, Q, A, H, m, n, l, r, alpha):
+	N = 2*n-1
+	cst = []
+
+	Gam = cvx.Int(N, l)      # gam_k,b is segment copy number of bp b at clone k
+	for k in xrange(0, N):
+		for b in xrange(0, l):
+			cst.append(Gam[k, b] == sum([ Q[b, s] * C[k, l+s] for s in xrange(0, r) ]))
+
+	Pi = np.divide(A, H) # breakpoint frequency (bpf)
+	Std_pi = np.sqrt(np.divide(np.multiply(Pi, 1-Pi), H)) # standard deviation in bpf. assume binomial
+	
+	F_bp, F_sg = cvx.Variable(m, l), cvx.Variable(m, l)
+	cst.append(F_bp == U * Gam)      # f_bp_p,b is mixed copy number of breakpoint (with mate) b in sample p
+	cst.append(F_sg == U * C[:, :l]) # f_sg_p,b is mixed copy number of segment containing bp b in sample p
+
+	cst.append( cvx.mul_elemwise(Pi - alpha*Std_pi, F_bp) <= F_sg ) # ratio of f_bp / f_sg should be close
+	cst.append( cvx.mul_elemwise(Pi + alpha*Std_pi, F_bp) >= F_sg ) #   to bpf Pi
 
 	return cst
 
