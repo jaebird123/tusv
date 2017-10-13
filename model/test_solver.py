@@ -22,8 +22,8 @@ def printnow(s):
 def main(argv):
 	random.seed(1)
 	np.random.seed(1)
-	m = 1  # samples
-	n = 3  # leaves
+	m = 3  # samples
+	n = 4  # leaves
 	l = 6 # breakpoints
 	r = 10 # segments
 	c_max = 7 # maximum copy number
@@ -43,12 +43,20 @@ def main(argv):
 	A = np.random.binomial(100, 0.25, [m, l])
 	H = 100 * np.ones([m, l])
 	lamb = 1.0
-	lamb = 1.0 / 10.0
+	# lamb = 1.0 / 10.0
 	alpha = 2.0
 
 	test_get_U(F, n, l, r)
 	test_get_C(F, Q, G, A, H, n, c_max, lamb, alpha)
 	exit()
+
+
+
+
+
+
+
+
 
 	num_steps = 50
 	for i in xrange(0, num_steps):

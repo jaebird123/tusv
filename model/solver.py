@@ -16,6 +16,7 @@ import argparse # for command line arguments
 import math     # it's math. we're gonna need it
 import cvxpy as cvx
 import numpy as np
+import gurobipy
 
 
 # # # # # # # # # # # # #
@@ -45,7 +46,7 @@ def get_U(F, C, n):
 
 	obj = cvx.Minimize(cvx.sum_entries(cvx.abs(F - U * C)))
 	prb = cvx.Problem(obj, cst)
-	prb.solve()
+	prb.solve(solver = cvx.GUROBI)
 
 	# remove any numbers extremely close to zero
 	U = U.value
@@ -58,6 +59,8 @@ def get_U(F, C, n):
 	rowsums = np.sum(U, 1)
 	for i in xrange(m):
 		U[i, :] = U[i, :] / rowsums[i]
+
+	print cvx.installed_solvers()
 
 	return U
 
@@ -72,6 +75,7 @@ def get_U(F, C, n):
 #         lamb (float) regularization term to weight total tree cost against unmixing error
 #         alpha (float) number of standard deviations allowed for estimator of breakpoint frequency
 # output: C (np.array of int) [2n-1, l+r] int copy number c_k,s of mutation s in clone k
+#         err_msg (None or str) None if no error occurs. str with error message if one does
 #  notes: l (int) is number of structural variants. r (int) is number of copy number regions
 def get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha):
 	l, r = Q.shape
@@ -79,26 +83,34 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha):
 
 	E = cvx.Int(2 * n - 1, 2 * n - 1) # binary edge indicators
 	R = cvx.Int(2 * n - 1, 2 * n - 1) # rho. cost across each edge
+	W = _get_bp_appearance_var(n, l)  # w_bin (dict). binary breakpoint appearance indicator
+	C_bin = cvx.Int(2*n-1, l+r)       # binary representation of C. C_bin = (C == 1)
 
 	# add constraints
 	cst = []
 	cst += _get_copy_num_constraints(C, c_max, l, r, n)
 	cst += _get_tree_constraints(E, n)
 	cst += _get_cost_constraints(R, C, E, n, l, r, c_max)
-
-	# REMOVEE COMMENT LATER!!!!
-	Y = cvx.Int(2*n-1, l+r)
-	cst += _bin(C, Y, 2*n-1, l+r, c_max)
+	cst += _bin(C, C_bin, 2*n-1, l+r, c_max)
+	cst += _get_bp_appearance_constraints(C_bin, W, E, G, n, l)
+	# cst += _get_sum_condition_constraints(C_bin, W)
 
 	obj = cvx.Minimize(cvx.sum_entries(cvx.abs(F - U * C)) + lamb * cvx.sum_entries(R))
-	# obj = cvx.Minimize(cvx.sum_entries(cvx.abs(F - U * C)))
 	prb = cvx.Problem(obj, cst)
 
-	prb.solve(max_iters = MAX_PRB_ITERS)
+	prb.solve(solver = cvx.GUROBI)
 	print prb.value
+	print type(prb.value)
+	print prb.status
+	print type(prb.status)
 
 	print E.value.round()
-	return C.value.round()
+	return C.value.round() # TODO: RETURN err_msg as well
+
+
+# # # # # # # # # # # # # # # # # # # # # # # #
+#   C O N S T R A I N T   F U N C T I O N S   #
+# # # # # # # # # # # # # # # # # # # # # # # #
 
 def _get_copy_num_constraints(C, c_max, l, r, n):
 	cst = [0 <= C, C <= c_max]
@@ -165,14 +177,67 @@ def _get_cost_constraints(R, C, E, n, l, r, c_max):
 
 	return cst
 
+#  input: C_bin (cvx.Int) [2n-1, l+r] binary copy number c_k,s of mutation s in clone k. is 0 if cp# is 0. 1 otherwise
+#         W (dict of cvx.Int) key is bp_index (int). val is w_i,j (cvx.Int) bp appearance indicator variables
+#                             this should have no constraints yet
+#         E (cvx.Int) [2n-1, 2n-1] binary edge indicator. 1 if (i,j) is an edge. 0 otherwise
+#         G (np.array of int) g_s,t == 1 iff breakpoints s and t are mates. 0 otherwise
+#         n (int) number of leaves in tree. total number of nodes is 2n-1
+#         l (int) number of breakpoints
+# output: cst (list of cvx.Constraint) W_i,j,b == 1 iff bp b appears on edge (i,j). for each b, W_i,j,b == 1 once
+def _get_bp_appearance_constraints(C_bin, W, E, G, n, l):
+	N = 2*n-1
+
+	cst = []                # make each w_i,j,b binary
+	for b in xrange(0, l):
+		cst.append(0 <= W[b])
+		cst.append(W[b] <= 1)
+
+	X = {}                  # x_i,j,b == 0 iff binary cp# goes from 0 to 1 across edge (i,j). X_i,j,b > 0 otherwise
+	for b in xrange(0, l):
+		X[b] = cvx.Int(N, N)
+		for i in xrange(0, N):
+			for j in xrange(0, N):
+				cst.append(X[b][i, j] == 2 + C_bin[i, b] - C_bin[j, b] - E[i, j])
+
+	X_bin = {}              # x_bin_i,j,b == 0 iff binary cp# goes from 0 to 1 across edge (i,j). 1 otherwise
+	for b in xrange(0, l):
+		X_bin[b] = cvx.Int(N, N)
+		cst += _bin(X[b], X_bin[b], N, N, 3)   # largest x_i,j,b could be is 3
+
+		cst.append(W[b] == 1 - X_bin[b])       # w_i,j,b == 1 iff bp b appears on edge (i,j). 0 otherwise
+
+	for b in xrange(0, l):                   # breakpoints only appear once in the tree
+		cst.append(cvx.sum_entries(W[b]) == 1)
+
+	for s in xrange(0, l):                   # breakpoint pairs must appear on same edge
+		for t in xrange(0, l):
+			cst.append(W[s] - W[t] <= 1 - G[s, t])
+			cst.append(W[t] - W[s] <= 1 - G[s, t])
+	
+	return cst
+
+#  input: C_bin (cvx.Int) [2n-1, l+r] binary copy number c_k,s of mutation s in clone k. is 0 if cp# is 0. 1 otherwise
+#         W (dict of cvx.Int) key is bp_index (int). val is w_i,j (cvx.Int) == 1 iff bp b appears on edge (i,j)
+# output: cst (list of cvx.Constraint)
+#   does: demands breakpoints occuring higher in the tree have larger percent of cells with this bp must he larger
+def _get_sum_condition_constraints(C_bin, W):
+	cst = []
+	return cst
+
+
+# # # # # # # # # # # # # # # # # # # #
+#   H E L P E R   F U N C T I O N S   #
+# # # # # # # # # # # # # # # # # # # #
+
 #  input: X (cvx.Int) [m, n] matrix to binarize
 #         Y (cvx.Int) [m, n] matrix to add constraints to. this will be the binary matrix version of X
 #         m, n (int) number of rows and cols respectively for both inputs X and Y
 #         x_max (int) maximum allowed value in input X. this is used to create bit representation of X
 # output: cst (list of cvx.Constraint) constraints making Y vals = 1 iff X > 0 and Y vals == 0 otherwise
 def _bin(X, Y, m, n, x_max):
-	num_bits = int(math.floor(math.log(x_max, 2))) + 2
-	cst = [0 <= Y, Y <= 1]
+	num_bits = int(math.floor(math.log(x_max, 2))) + 1
+	cst = [Y <= 1]
 
 	Z = {}
 	for b in xrange(0, num_bits): # create binary variables Z
@@ -186,10 +251,20 @@ def _bin(X, Y, m, n, x_max):
 			cst.append( sum([ Z[b][i, j] * 2**b for b in xrange(0, num_bits) ]) == X[i, j] )
 
 			# constrain Y to be 1 if any bits are 1
-			# for b in xrange(0, num_bits):
-			# 	cst.append( Z[b][i, j] <= Y[i, j] )
+			for b in xrange(0, num_bits):
+				cst.append( Z[b][i, j] <= Y[i, j] )
 
-			# # constrain Y to be 0 if all bits are 0
-			# cst.append( Y[i, j] <= sum([ Z[b][i, j] for b in xrange(0, num_bits) ]) )
+			# constrain Y to be 0 if all bits are 0
+			cst.append( Y[i, j] <= sum([ Z[b][i, j] for b in xrange(0, num_bits) ]) )
 
 	return cst
+
+#  input: n (int) number of leaves in tree. total number of nodes is 2n-1
+#         l (int) number of breakpoints
+# output: W (dict of cvx.Int) key is bp_index (int). val is w_i,j (cvx.Int) bp appearance indicator variables
+def _get_bp_appearance_var(n, l):
+	N = 2*n-1
+	W = {}
+	for b in xrange(0, l):
+		W[b] = cvx.Int(N, N)
+	return W
