@@ -1,7 +1,7 @@
 #     file: solver.py
 #   author: Jesse Eaton
 #  created: 9/30/2017
-# modified: 9/30/2017
+# modified: 10/14/2017
 #  purpose: Linear program solver of single instance of mixed copy number F, solving for either
 #              copy number C or mixture U where the other is assumed constant
 
@@ -53,10 +53,9 @@ def get_UCE(F, Q, G, A, H, n, c_max, lamb, alpha, max_iters):
 	for i in xrange(0, max_iters):
 
 		if i == 0:
-			U = get_U(m, n)
+			U = gen_U(m, n)
 		else:
 			_, U = get_U(F, C, R, n, lamb)
-			C_prv = C
 
 		obj_val, C, E, R, err_msg = get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha)
 
@@ -64,7 +63,7 @@ def get_UCE(F, Q, G, A, H, n, c_max, lamb, alpha, max_iters):
 		if err_msg != None:
 			return None, None, None, None, err_msg
 
-		C_diff = abs((C - C_prv)).sum() # could possibly return
+		# C_diff = abs((C - C_prv)).sum() # could possibly return
 
 	return U, C, E, obj_val, None
 
@@ -90,7 +89,7 @@ def get_U(F, C, R, n, lamb):
 	prb.solve(solver = cvx.GUROBI)
 
 	# remove any numbers extremely close to zero
-	U = U.value
+	U = np.array(U.value)
 	for i in xrange(m):
 		for j in xrange(2*n-1):
 			if U[i, j] <= U_MIN:
@@ -150,9 +149,9 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha):
 		return None, None, None, None, "ERROR: solving with " + str(cvx.GUROBI) + " did not work"
 
 	if prb.status == cvx.OPTIMAL:
-		C = C.value.round()
-		R = R.value.round()
-		E = E.value.round()
+		C = np.array(C.value.round())
+		R = np.array(R.value.round())
+		E = np.array(E.value.round())
 		obj_val = _calc_obj_val(F, U, C, R, m, n, lamb)
 		return obj_val, C, E, R, None
 

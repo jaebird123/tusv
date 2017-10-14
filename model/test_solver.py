@@ -19,7 +19,7 @@ def main(argv):
 
 	F = f_scale * np.random.rand(m, l + r)
 	U = gen_U(m, n)
-	Q = np.array([ np.arange(0, r) == random.randint(0, r) for bp in xrange(l) ], dtype = int)
+	Q = np.array([ np.arange(0, r) == random.randint(0, r-1) for bp in xrange(l) ], dtype = int)
 	G = gen_G(l)
 	A = np.random.binomial(100, 0.25, [m, l])
 	H = 100 * np.ones([m, l])
@@ -29,24 +29,7 @@ def main(argv):
 
 	test_get_U(F, n, l, r, lamb)
 	# test_get_C(F, Q, G, A, H, n, c_max, lamb, alpha)
-	test_get_UCE(F, Q, G, A, H, n, c_max, lamb, alpha, max_iters = 30)
-
-	exit()
-
-	num_steps = 50
-	for i in xrange(0, num_steps):
-		if i > 0:
-			prevC = C
-			prevU = U
-		C = sv.get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha)
-		U = sv.get_U(F, C, n)
-		if i > 0:
-			diffC = abs((C-prevC)).sum()
-			diffU = abs((U-prevU)).sum()
-			printnow('\n' + str(i) + '\n')
-			printnow('difference in C is ' + str(diffC) + '\n')
-			printnow('difference in U is ' + str(diffU) + '\n')
-			printnow(str(C) + '\n')
+	test_get_UCE(F, Q, G, A, H, n, c_max, lamb, alpha, max_iters = 2)
 
 # mated pair binary matrix
 def gen_G(l):
