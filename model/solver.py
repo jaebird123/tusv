@@ -24,6 +24,7 @@ import gurobipy
 # # # # # # # # # # # # #
 
 U_MIN = 1*10**(-5)
+MAX_SOLVER_ITERS = 5000
 
 
 # # # # # # # # # # # # #
@@ -31,10 +32,51 @@ U_MIN = 1*10**(-5)
 # # # # # # # # # # # # #
 
 #  input: F (np.array of float) [m, l+r] mixed copy number f_p,s of mutation s in sample p
-#         C (np.array of int) [2n-1, l+r] int copy number c_k,s of mutation s in clone k
+#         Q (np.array of 0 or 1) [l, r] q_b,s == 1 if breakpoint b is in segment s. 0 otherwise
+#         G (np.array of 0 or 1) [l, l] g_s,t == 1 if breakpoints s and t are mates. 0 otherwise
+#         A (np.array of int) [m, l] a_p,b is number of mated reads for breakpoint b in sample p
+#         H (np.array of int) [m, l] h_p,b is number of total reads for breakpoint b in sample p
 #         n (int) number of leaves in phylogeny. 2n-1 is total number of nodes
+#         c_max (int) maximum allowed copy number for any element in output C
+#         lamb (float) regularization term to weight total tree cost against unmixing error
+#         alpha (float) number of standard deviations allowed for estimator of breakpoint frequency
+#         max_iters (int) maximum number of iterations to predict U then C if convergence not reached
 # output: U (np.array of float) [m, 2n-1] 0 <= u_p,k <= 1. percent of sample p made by clone k
-def get_U(F, C, n):
+#         C (np.array of int) [2n-1, l+r] int copy number c_k,s of mutation s in clone k
+#         E (np.array of int) [2n-1, 2n-1] e_i,j == 1 iff edge (i,j) is in tree. 0 otherwise
+#         obj_val (float) objective value of final solution
+#         err_msg (None or str) None if no error occurs. str with error message if one does
+#  notes: l (int) is number of structural variants. r (int) is number of copy number regions
+def get_UCE(F, Q, G, A, H, n, c_max, lamb, alpha, max_iters):
+	m = len(F)
+
+	for i in xrange(0, max_iters):
+
+		if i == 0:
+			U = get_U(m, n)
+		else:
+			_, U = get_U(F, C, R, n, lamb)
+			C_prv = C
+
+		obj_val, C, E, R, err_msg = get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha)
+
+		# handle errors
+		if err_msg != None:
+			return None, None, None, None, err_msg
+
+		C_diff = abs((C - C_prv)).sum() # could possibly return
+
+	return U, C, E, obj_val, None
+
+
+#  input: F (np.array of float) [m, l+r] mixed copy number f_p,s of mutation s in sample p
+#         C (np.array of int) [2n-1, l+r] int copy number c_k,s of mutation s in clone k
+#         R (np.array of int) [2n-1, 2n-1] cost of each edge in the tree
+#         n (int) number of leaves in phylogeny. 2n-1 is total number of nodes
+#         lamb (float) regularization term to weight total tree cost against unmixing error
+# output: obj_val (float) objective value acheived
+#         U (np.array of float) [m, 2n-1] 0 <= u_p,k <= 1. percent of sample p made by clone k
+def get_U(F, C, R, n, lamb):
 	m = len(F)
 	U = cvx.Variable(m, 2*n-1)
 	
@@ -59,7 +101,9 @@ def get_U(F, C, n):
 	for i in xrange(m):
 		U[i, :] = U[i, :] / rowsums[i]
 
-	return U
+	obj_val = _calc_obj_val(F, U, C, R, m, n, lamb)
+
+	return obj_val, U
 
 #  input: F (np.array of float) [m, l+r] mixed copy number f_p,s of mutation s in sample p
 #         U (np.array of float) [m, 2n-1] 0 <= u_p,k <= 1. percent of sample p made by clone k
@@ -74,6 +118,7 @@ def get_U(F, C, n):
 # output: obj_val (float) objective value of solution
 #         C (np.array of int) [2n-1, l+r] int copy number c_k,s of mutation s in clone k
 #         E (np.array of int) [2n-1, 2n-1] e_i,j == 1 iff edge (i,j) is in tree. 0 otherwise
+#         R (np.array of int) [2n-1, 2n-1] cost of each edge in the tree
 #         err_msg (None or str) None if no error occurs. str with error message if one does
 #  notes: l (int) is number of structural variants. r (int) is number of copy number regions
 def get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha):
@@ -96,19 +141,33 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha):
 	cst += _get_sum_condition_constraints(C_bin, W, U, m, n, l)
 	cst += _get_bp_frequency_constraints(C, U, Q, A, H, m, n, l, r, alpha)
 
-	obj = cvx.Minimize(cvx.sum_entries(cvx.abs(F - U * C)) + lamb * cvx.sum_entries(R))
+	obj = cvx.Minimize(cvx.sum_entries(cvx.abs(F - U * C)) + lamb * float(m)/float(2*n-2) * cvx.sum_entries(R))
 	prb = cvx.Problem(obj, cst)
 
 	try:
-		prb.solve(solver = cvx.GUROBI)
+		prb.solve(solver = cvx.GUROBI, max_iters = MAX_SOLVER_ITERS)
 	except:
-		return None, None, None, "ERROR: solving with " + str(cvx.GUROBI) + " did not work"
+		return None, None, None, None, "ERROR: solving with " + str(cvx.GUROBI) + " did not work"
 
 	if prb.status == cvx.OPTIMAL:
-		return prb.value, C.value.round(), E.value.round(), None
+		C = C.value.round()
+		R = R.value.round()
+		E = E.value.round()
+		obj_val = _calc_obj_val(F, U, C, R, m, n, lamb)
+		return obj_val, C, E, R, None
 
-	return prb.value, None, None, "error when solving: " + str(prb.status)
+	return prb.value, None, None, None, "error when solving: " + str(prb.status)
 
+#  input: F (np.array of float) [m, l+r] mixed copy number f_p,s of mutation s in sample p
+#         U (np.array of float) [m, 2n-1] 0 <= u_p,k <= 1. percent of sample p made by clone k
+#         C (np.array of int) [2n-1, l+r] int copy number c_k,s of mutation s in clone k
+#         R (np.array of int) [2n-1, 2n-1] cost of each edge in the tree
+#         m (int) number of samples
+#         n (int) number of leaves in phylogeny. 2n-1 is total number of nodes
+#         lamb (float) regularization term to weight total tree cost against unmixing error
+def _calc_obj_val(F, U, C, R, m, n, lamb):
+	F_est = np.matmul(U, C)
+	return np.sum(np.absolute(F - F_est)) + lamb * float(m)/float(2*n-2) * np.sum(R)
 
 # # # # # # # # # # # # # # # # # # # # # # # #
 #   C O N S T R A I N T   F U N C T I O N S   #
@@ -343,3 +402,15 @@ def _get_bp_appearance_var(n, l):
 	for b in xrange(0, l):
 		W[b] = cvx.Int(N, N)
 	return W
+
+# generate random U matrix with m rows and 2n-1 cols. vals are between 0.0 and 1.0 and rows sum to 1.0
+def gen_U(m, n):
+	U = np.random.rand(m, 2*n-1)
+	rowsums = np.sum(U, 1)
+	for i in xrange(m):
+		U[i, :] = U[i, :] / rowsums[i]
+	return U
+
+def printnow(s):
+	sys.stdout.write(s)
+	sys.stdout.flush()

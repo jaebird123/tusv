@@ -10,11 +10,11 @@ def printnow(s):
 def main(argv):
 	# random.seed(1)
 	# np.random.seed(1)
-	m = 3       # samples
-	n = 4       # leaves
+	m = 1       # samples
+	n = 3       # leaves
 	l = 6       # breakpoints
 	r = 10      # segments
-	c_max = 7   # maximum copy number
+	c_max = 7  # maximum copy number
 	f_scale = 5
 
 	F = f_scale * np.random.rand(m, l + r)
@@ -23,12 +23,13 @@ def main(argv):
 	G = gen_G(l)
 	A = np.random.binomial(100, 0.25, [m, l])
 	H = 100 * np.ones([m, l])
-	lamb = 1.0
+	lamb = 2.0
+	# lamb = 0.0
 	alpha = 3.0
 
-	test_get_U(F, n, l, r)
-	test_get_C(F, Q, G, A, H, n, c_max, lamb, alpha)
-	print G
+	test_get_U(F, n, l, r, lamb)
+	# test_get_C(F, Q, G, A, H, n, c_max, lamb, alpha)
+	test_get_UCE(F, Q, G, A, H, n, c_max, lamb, alpha, max_iters = 30)
 
 	exit()
 
@@ -79,18 +80,35 @@ def gen_U(m, n):
 #   T E S T S   #
 # # # # # # # # #
 
-def test_get_U(F, n, l, r):
+def test_get_UCE(F, Q, G, A, H, n, c_max, lamb, alpha, max_iters = 5):
+	printnow('\ntest_get_UCE starting\n')
+	U, C, E, obj_val, err_msg = sv.get_UCE(F, Q, G, A, H, n, c_max, lamb, alpha, max_iters)
+
+	if err_msg != None:
+		printnow(err_msg + '\n')
+	else:
+		printnow(str(U) + '\n')
+		printnow(str(C) + '\n')
+		printnow(str(E) + '\n')
+		printnow('objective value is ' + str(obj_val) + '\n')
+
+	printnow('\ntest_get_UCE complete\n')
+
+def test_get_U(F, n, l, r, lamb):
+	N = 2*n-1
 	C = gen_C(n, l, r)
+	R = np.array([ 1 for i in xrange(0, N) for j in xrange(0, N) ])
 	printnow('\ntest_get_U starting\n')
-	U = sv.get_U(F, C, n)
+	obj_val, U = sv.get_U(F, C, R, n, lamb)
 	printnow(str(U) + '\n')
+	printnow(str(obj_val) + '\n')
 	printnow('test_get_U complete\n')
 
 def test_get_C(F, Q, G, A, H, n, c_max, lamb, alpha):
 	m = len(F)
 	U = gen_U(m, n)
 	printnow('\ntest_get_C starting\n')
-	obj_val, C, E, err_msg = sv.get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha)
+	obj_val, C, E, R, err_msg = sv.get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha)
 
 	if err_msg != None:
 		printnow(err_msg + '\n')
@@ -100,7 +118,6 @@ def test_get_C(F, Q, G, A, H, n, c_max, lamb, alpha):
 		printnow('objective value is ' + str(obj_val) + '\n')
 
 	printnow('test_get_C complete\n')
-
 
 #
 #   CALL TO MAIN
