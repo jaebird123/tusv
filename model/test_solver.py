@@ -27,8 +27,8 @@ def main(argv):
 	# lamb = 0.0
 	alpha = 3.0
 
-	test_get_U(F, n, l, r, lamb)
-	# test_get_C(F, Q, G, A, H, n, c_max, lamb, alpha)
+	test_get_U(F, n, l, r)
+	test_get_C(F, Q, G, A, H, n, c_max, lamb, alpha)
 	test_get_UCE(F, Q, G, A, H, n, c_max, lamb, alpha, max_iters = 2)
 
 # mated pair binary matrix
@@ -77,14 +77,12 @@ def test_get_UCE(F, Q, G, A, H, n, c_max, lamb, alpha, max_iters = 5):
 
 	printnow('\ntest_get_UCE complete\n')
 
-def test_get_U(F, n, l, r, lamb):
+def test_get_U(F, n, l, r):
 	N = 2*n-1
 	C = gen_C(n, l, r)
-	R = np.array([ 1 for i in xrange(0, N) for j in xrange(0, N) ])
 	printnow('\ntest_get_U starting\n')
-	obj_val, U = sv.get_U(F, C, R, n, lamb)
+	U = sv.get_U(F, C, n)
 	printnow(str(U) + '\n')
-	printnow(str(obj_val) + '\n')
 	printnow('test_get_U complete\n')
 
 def test_get_C(F, Q, G, A, H, n, c_max, lamb, alpha):

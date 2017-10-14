@@ -48,6 +48,7 @@ MAX_SOLVER_ITERS = 5000
 #         err_msg (None or str) None if no error occurs. str with error message if one does
 #  notes: l (int) is number of structural variants. r (int) is number of copy number regions
 def get_UCE(F, Q, G, A, H, n, c_max, lamb, alpha, max_iters):
+	np.random.seed() # sets seed for running on multiple processors
 	m = len(F)
 
 	for i in xrange(0, max_iters):
@@ -55,7 +56,7 @@ def get_UCE(F, Q, G, A, H, n, c_max, lamb, alpha, max_iters):
 		if i == 0:
 			U = gen_U(m, n)
 		else:
-			_, U = get_U(F, C, R, n, lamb)
+			U = get_U(F, C, n)
 
 		obj_val, C, E, R, err_msg = get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha)
 
@@ -70,12 +71,9 @@ def get_UCE(F, Q, G, A, H, n, c_max, lamb, alpha, max_iters):
 
 #  input: F (np.array of float) [m, l+r] mixed copy number f_p,s of mutation s in sample p
 #         C (np.array of int) [2n-1, l+r] int copy number c_k,s of mutation s in clone k
-#         R (np.array of int) [2n-1, 2n-1] cost of each edge in the tree
 #         n (int) number of leaves in phylogeny. 2n-1 is total number of nodes
-#         lamb (float) regularization term to weight total tree cost against unmixing error
-# output: obj_val (float) objective value acheived
-#         U (np.array of float) [m, 2n-1] 0 <= u_p,k <= 1. percent of sample p made by clone k
-def get_U(F, C, R, n, lamb):
+# output: U (np.array of float) [m, 2n-1] 0 <= u_p,k <= 1. percent of sample p made by clone k
+def get_U(F, C, n):
 	m = len(F)
 	U = cvx.Variable(m, 2*n-1)
 	
@@ -100,9 +98,7 @@ def get_U(F, C, R, n, lamb):
 	for i in xrange(m):
 		U[i, :] = U[i, :] / rowsums[i]
 
-	obj_val = _calc_obj_val(F, U, C, R, m, n, lamb)
-
-	return obj_val, U
+	return U
 
 #  input: F (np.array of float) [m, l+r] mixed copy number f_p,s of mutation s in sample p
 #         U (np.array of float) [m, 2n-1] 0 <= u_p,k <= 1. percent of sample p made by clone k
@@ -152,21 +148,9 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha):
 		C = np.array(C.value.round())
 		R = np.array(R.value.round())
 		E = np.array(E.value.round())
-		obj_val = _calc_obj_val(F, U, C, R, m, n, lamb)
-		return obj_val, C, E, R, None
+		return prb.value, C, E, R, None
 
 	return prb.value, None, None, None, "error when solving: " + str(prb.status)
-
-#  input: F (np.array of float) [m, l+r] mixed copy number f_p,s of mutation s in sample p
-#         U (np.array of float) [m, 2n-1] 0 <= u_p,k <= 1. percent of sample p made by clone k
-#         C (np.array of int) [2n-1, l+r] int copy number c_k,s of mutation s in clone k
-#         R (np.array of int) [2n-1, 2n-1] cost of each edge in the tree
-#         m (int) number of samples
-#         n (int) number of leaves in phylogeny. 2n-1 is total number of nodes
-#         lamb (float) regularization term to weight total tree cost against unmixing error
-def _calc_obj_val(F, U, C, R, m, n, lamb):
-	F_est = np.matmul(U, C)
-	return np.sum(np.absolute(F - F_est)) + lamb * float(m)/float(2*n-2) * np.sum(R)
 
 # # # # # # # # # # # # # # # # # # # # # # # #
 #   C O N S T R A I N T   F U N C T I O N S   #
