@@ -19,7 +19,9 @@ import multiprocessing as mp
 
 # custom modules
 sys.path.insert(0, 'model/')
+sys.path.insert(0, 'help/')
 import solver as sv
+import file_manager as fm # sanitizes file and directory arguments
 
 
 # # # # # # # # # # # # #
@@ -35,10 +37,12 @@ import solver as sv
 
 def main(argv):
 	args = get_args(argv)
+	print args
+	exit()
 	
 	F, Q, G, A, H, n, c_max, lamb, alpha = get_vars()
 
-	num_restarts = 4
+	num_restarts = 2
 	max_iters = 2
 
 	p = mp.Pool(processes = 2)
@@ -118,6 +122,7 @@ def gen_G(l):
 
 def get_args(argv):
 	parser = argparse.ArgumentParser(prog = 'template.py', description = "purpose")
+	parser.add_argument('-i', '--input_directory', required = True, type = lambda x: fm.valid_dir_ext(parser, x, '.vcf'), help = 'directory containing a .vcf for each sample from a single patient')
 	# parser.add_argument('input_file', help = 'input .txt file', type = lambda x: is_valid_file(parser, x))
 	return vars(parser.parse_args(argv))
 

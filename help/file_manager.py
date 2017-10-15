@@ -1,0 +1,71 @@
+#     file: file_manager.py
+#   author: Jesse Eaton
+#  created: 10/15/2017
+# modified: 10/15/2017
+#  purpose: Manages files used in arguments
+
+
+# # # # # # # # # # #
+#   I M P O R T S   #
+# # # # # # # # # # #
+
+import sys      # for command line arguments
+import os       # for manipulating files and folders
+
+
+# # # # # # # # # # # # #
+#   F U N C T I O N S   #
+# # # # # # # # # # # # #
+
+# creates file if file does not already exist
+def touch(fname, times = None):
+	with open(fname, 'a'):
+		os.utime(fname, times)
+
+# returns string as directory. adds error to parser if no valid directory
+def valid_dir(parser, arg):
+	if not os.path.exists(arg):
+		parser.error('The directory \"' + str(arg) + '\" could not be found.')
+	return _directorize(arg)
+
+#  input: parser (argparser.parser)
+#         arg (str) full path of directory
+#         ext (str) extension (ex: .vcf). directory must have at least one of these files
+# output: arg (str) full path of directory with '/' as needed
+def valid_dir_ext(parser, arg, ext):
+	if not os.path.exists(arg):
+		parser.error('The directory \"' + str(arg) + '\" could not be found.')
+	arg = _directorize(arg)
+	if len(_files_with_extension(arg, ext)) == 0:
+		parser.error('The directory \"' + str(arg) + '\" contained no ' + str(ext) + ' files.')
+	return arg
+
+
+# # # # # # # # # # # # # # # # # # # #
+#   H E L P E R   F U N C T I O N S   #
+# # # # # # # # # # # # # # # # # # # #
+
+# add "/" to end of directory name if necessary
+def _directorize(dir_name):
+	if dir_name.endswith('/'):
+		return dir_name
+	return dir_name + '/'
+
+# os.walk but only goes recursively down level levels
+def _walklevel(some_dir, level = 0):
+	some_dir = some_dir.rstrip(os.path.sep)
+	assert os.path.isdir(some_dir)
+	num_sep = some_dir.count(os.path.sep)
+	for root, dirs, files in os.walk(some_dir):
+		yield root, dirs, files
+		num_sep_this = root.count(os.path.sep)
+		if num_sep + level <= num_sep_this:
+			del dirs[:]
+
+# returns all files in the directory with extension ext (ex. ext = '.vcf')
+def _files_with_extension(directory, ext):
+	files = []
+	for file in os.listdir(directory):
+		if file.endswith(ext):
+			files.append(file)
+	return files
