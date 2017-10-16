@@ -21,14 +21,20 @@ import multiprocessing as mp
 sys.path.insert(0, 'model/')
 sys.path.insert(0, 'help/')
 import solver as sv
-import file_manager as fm # sanitizes file and directory arguments
+import file_manager as fm      # sanitizes file and directory arguments
+import generate_matrices as gm # gets F, Q, G, A, H from .vcf files
+import printer as pt
 
 
 # # # # # # # # # # # # #
 #   C O N S T A N T S   #
 # # # # # # # # # # # # #
 
-# here
+MAX_NUM_LEAVES = 10
+MAX_COPY_NUM = 20
+MAX_CORD_DESC_ITERS = 1000
+MAX_RESTART_ITERS = 1000
+NUM_CORES = mp.cpu_count()
 
 
 # # # # # # # # # # # # #
@@ -37,17 +43,16 @@ import file_manager as fm # sanitizes file and directory arguments
 
 def main(argv):
 	args = get_args(argv)
-	print args
-	exit()
 	
-	F, Q, G, A, H, n, c_max, lamb, alpha = get_vars()
+	F, Q, G, A, H = gm.get_mats(args['input_directory'])
+	n, c_max, lamb, alpha = args['num_leaves'], args['c_max'], args['lambda'], args['alpha']
+	num_restarts, num_cd_iters, num_processors = args['restart_iters'], args['cord_desc_iters'], args['processors']
 
-	num_restarts = 2
-	max_iters = 2
+	check_valid_input(Q, G, A, H)
 
-	p = mp.Pool(processes = 2)
+	p = mp.Pool(processes = num_processors)
 
-	arg_set = (F, Q, G, A, H, n, c_max, lamb, alpha, max_iters)
+	arg_set = (F, Q, G, A, H, n, c_max, lamb, alpha, num_cd_iters)
 	arg_sets_to_use = [ arg_set for _ in xrange(0, num_restarts) ]
 
 	Us, Cs, Es, obj_vals = [], [], [], []
@@ -116,6 +121,37 @@ def gen_G(l):
 		G[j, j] = 1
 	return G
 
+# input: Q (np.array of 0 or 1) [l, r] q_b,s == 1 if breakpoint b is in segment s. 0 otherwise
+#        G (np.array of 0 or 1) [l, l] g_s,t == 1 if breakpoints s and t are mates. 0 otherwise
+#        A (np.array of int) [m, l] a_p,b is number of mated reads for breakpoint b in sample p
+#        H (np.array of int) [m, l] h_p,b is number of total reads for breakpoint b in sample p
+#  does: exits with error message if any of the input is not valid
+def check_valid_input(Q, G, A, H):
+	l, r = np.shape(Q)
+	m = np.shape(A)[0]
+	Q_msg = 'There is an issue with input binary matrix Q (indicates which segment each breakpoint belongs to). Each breakpoint must belong to exactly one segment.'
+	G_msg = 'There is an issue with input binary matrix G (indicates which breakpoints are mates). Each breakpoint must be mated into pairs.'
+	A_msg = 'There is an issue with input integer matricies A and H (indicating the number of reads mapped to each mated breakpoint and the number of total reads mapping to a breakpoint). The number of mated reads must be less or equal to the total reads and both should be non negative.'
+
+	raiseif(not np.all(np.sum(Q, 1) == 1), Q_msg)
+
+	raiseif(not np.all(np.sum(G, 0) == 2) or not np.all(np.sum(G, 0) == 2), G_msg)
+	for i in xrange(0, l):
+		for j in xrange(0, l):
+			raiseif(G[i, j] != G[j, i], G_msg)
+			raiseif(i == j and G[i, i] != 1, G_msg)
+
+	for p in xrange(0, m):
+		for b in xrange(0, l):
+			raiseif(A[p, b] < 0 or A[p, b] > H[p, b], A_msg)
+
+# raises exception if boolean is true
+def raiseif(should_raise, msg):
+	if should_raise:
+		raise Exception(msg)
+
+	# condition for G and A and H
+
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #   C O M M A N D   L I N E   A R G U M E N T   F U N C T I O N S   #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -123,15 +159,15 @@ def gen_G(l):
 def get_args(argv):
 	parser = argparse.ArgumentParser(prog = 'template.py', description = "purpose")
 	parser.add_argument('-i', '--input_directory', required = True, type = lambda x: fm.valid_dir_ext(parser, x, '.vcf'), help = 'directory containing a .vcf for each sample from a single patient')
-	# parser.add_argument('input_file', help = 'input .txt file', type = lambda x: is_valid_file(parser, x))
+	parser.add_argument('-o', '--output_directory', required = True, type = lambda x: fm.valid_dir(parser, x), help = 'empty directory for output U.tsv, C.tsv, and T.dot files to go')
+	parser.add_argument('-n', '--num_leaves', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 2, MAX_NUM_LEAVES), help = 'number of leaves for inferred binary tree. total number of nodes will be 2*n-1')
+	parser.add_argument('-c', '--c_max', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_COPY_NUM), help = 'maximum allowed copy number at any node in the tree')
+	parser.add_argument('-l', '--lambda', required = True, type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'regularization term to weight total tree cost against unmixing error in objective function. setting as 0.0 will put no tree cost constraint. setting as 1.0 will equally consider tree cost and unmixing error.')
+	parser.add_argument('-a', '--alpha', required = True, type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'number of standard deviations allowed for estimator of breakpoint frequency')
+	parser.add_argument('-t', '--cord_desc_iters', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_CORD_DESC_ITERS), help = 'maximum number of cordinate descent iterations for each initialization of U')
+	parser.add_argument('-r', '--restart_iters', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_RESTART_ITERS), help = 'number of random initializations for picking usage matrix U')
+	parser.add_argument('-p', '--processors', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, NUM_CORES), help = 'number of processors to use')
 	return vars(parser.parse_args(argv))
-
-# def is_valid_file(parser, arg):
-# 	if not os.path.exists(arg):
-# 		parser.error('The file \"' + str(arg) + '\" could not be found.')
-# 	else:
-# 		return open(arg, 'r')
-
 
 # # # # # # # # # # # # # # # # # # # # # # # # #
 #   C A L L   T O   M A I N   F U N C T I O N   #

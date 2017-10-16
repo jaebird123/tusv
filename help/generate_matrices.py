@@ -16,30 +16,45 @@ import numpy as np
 import operator
 import random
 
+# custom imports
+import file_manager as fm
+
 #####################
 ##### FUNCTIONS #####
 #####################
 
-def main(argv):
-	args = get_args(argv)
-	sampleList = os.listdir(args['inputFolder'])
+#  input: in_dir (str) full path to input directory containing .vcf file(s)
+def get_mats(in_dir):
+	sampleList = fm._fnames_with_extension(in_dir, '.vcf')
 
 	m = len(sampleList)
-	n = args['numClone'] # int
-	U = random_get_usages(m, n)
+
+	bp_id_to_mate_id, bp_id_to_tuple = {}, {}
 
 	BP_sample_dict, CN_sample_dict, CN_sample_rec_dict = dict(), dict(), dict()
-	for sample in sampleList:
-		input_vcf_file = args['inputFolder'] + '/' + sample
+	for i, sample in enumerate(sampleList):
+		input_vcf_file = in_dir + '/' + sample
 		reader = vcf.Reader(open(input_vcf_file, 'r'))
-		BP_sample_dict[sample], CN_sample_dict[sample], CN_sample_rec_dict[sample] = get_sample_dict(reader)
+		BP_sample_dict[sample], CN_sample_dict[sample], CN_sample_rec_dict[sample], mateIDs, toTuple = get_sample_dict(reader)
+		
+		# prepend sample index to each breakpoint ID
+		for k, v in mateIDs.iteritems():
+			bp_id_to_mate_id[str(i+1) + k] = str(i+1) + v # add all entries from mateIDs (dict) to bp_id_to_mate_id (dict)
+			bp_id_to_tuple[str(i+1) + k] = toTuple[k]     # add all entries from toTuple (dict) to bp_id_to_tuple (dict)
 
 	BP_idx_dict, l = get_BP_idx_dict(BP_sample_dict)
 	CN_startPos_dict, CN_endPos_dict, r = get_CN_indices_dict(CN_sample_dict)
 
 	F, Q, A, H = make_matrices(m, l, r, sampleList, BP_sample_dict, BP_idx_dict, CN_sample_rec_dict, CN_startPos_dict, CN_endPos_dict)
 	
-	return F, Q, A, H, m, n, l, r, U
+	F = np.array(F).astype(float)
+	Q = np.array(Q)
+	A = np.array(A)
+	H = np.array(H)
+
+	G = make_G(BP_idx_dict, bp_id_to_mate_id, bp_id_to_tuple)
+
+	return F, Q, G, A, H
 
 
 # init a r*c 2d list filling with 0
@@ -130,19 +145,26 @@ def get_BP_idx_dict(BP_sample_dict):
 # 3. CN_sample_rec_dict: 
 #    key: sample
 #    value: {chr1: {(s1, e1): cn1, (s2, e2): cn2, ...}, chr2: {...}...}
+# 4. bp_id_to_mate_id (dict) key (str) is ID of breakpoint. val (str) is ID of mate
+# 5. bp_id_to_tuple   (dict) key (str) is ID of breakpoint. val (tuple) is (chrm_num, pos, direction)
 def get_sample_dict(reader):
 	BP_sample_dict, CN_sample_dict, CN_sample_rec_dict = dict(), dict(), dict()
+	bp_id_to_mate_id = {} # key is id (str). val is mate id (str)
+	bp_id_to_tuple = {}   # key is (chrm_num, pos, direction). key is id (str)
 	for rec in reader:
 		if is_sv_record(rec) == True:
 			if rec.CHROM not in BP_sample_dict:
 				BP_sample_dict[rec.CHROM] = dict()
 			if rec.POS not in BP_sample_dict[rec.CHROM]:
 				BP_sample_dict[rec.CHROM][rec.POS] = dict()
-			# BP_sample_dict[rec.CHROM][rec.POS]['id'] = rec.ID
+			BP_sample_dict[rec.CHROM][rec.POS]['id'] = rec.ID
 			BP_sample_dict[rec.CHROM][rec.POS]['cn'] = rec.samples[0].data.CNADJ
 			BP_sample_dict[rec.CHROM][rec.POS]['mate_dir'] = rec.ALT[0].remoteOrientation
 			# BP_sample_dict[rec.CHROM][rec.POS]['mate_id'] = rec.INFO['MATEID']
 			BP_sample_dict[rec.CHROM][rec.POS]['mate_pos'] = rec.ALT[0].pos
+
+			bp_id_to_mate_id[rec.ID] = rec.INFO['MATEID'][0]
+			
 			BP_sample_dict[rec.CHROM][rec.POS]['bdp'] = rec.samples[0].data.BDP
 			BP_sample_dict[rec.CHROM][rec.POS]['dp'] = rec.samples[0].data.DP
 		elif is_cnv_record(rec) == True:
@@ -157,7 +179,10 @@ def get_sample_dict(reader):
 		for pos in BP_sample_dict[chrom]:
 			BP_sample_dict[chrom][pos]['dir'] = BP_sample_dict[chrom][BP_sample_dict[chrom][pos]['mate_pos']]['mate_dir']
 
-	return BP_sample_dict, CN_sample_dict, CN_sample_rec_dict
+			bp_id = BP_sample_dict[chrom][pos]['id']
+			bp_id_to_tuple[bp_id] = (chrom, pos, BP_sample_dict[chrom][pos]['dir'])
+
+	return BP_sample_dict, CN_sample_dict, CN_sample_rec_dict, bp_id_to_mate_id, bp_id_to_tuple
 
 
 # CN_startPos_dict: key: (chrom, startPos), val: idx
@@ -221,6 +246,49 @@ def get_CN_indices_dict(CN_sample_dict):
 	return CN_startPos_dict, CN_endPos_dict, r
 
 
+#  input: bp_tuple_to_idx (dict) key is bp tuple (chrm, pos, direction). val is index of output G
+#         bp_id_to_mate_id (dict) key (str) is ID of breakpoint. val (str) is ID of mate
+#         bp_id_to_tuple   (dict) key (str) is ID of breakpoint. val (tuple) is (chrm_num, pos, direction)
+# output: G (np.array of 0 or 1) [l, l] g_s,t == 1 if breakpoints s and t are mates. 0 otherwise
+def make_G(bp_tuple_to_idx, bp_id_to_mate_id, bp_id_to_tuple):
+	l = len(bp_tuple_to_idx.keys())
+	G = np.zeros((l, l))
+
+	for i in xrange(0, l):
+		G[i, i] = 1          # breakpoint being its own mate is a requirement for the solver
+
+	bp_idx_to_tuple = inv_dict(bp_tuple_to_idx)
+	bp_tuple_to_mate_tuple = get_bp_tuple_to_mate_tuple(bp_id_to_mate_id, bp_id_to_tuple)
+
+	for i in sorted(bp_idx_to_tuple.iterkeys()):
+		cur_tuple = bp_idx_to_tuple[i]
+		mate_tup = bp_tuple_to_mate_tuple[cur_tuple]
+		j = bp_tuple_to_idx[mate_tup]
+		G[i, j] = 1
+
+	return G
+
+#  input: bp_id_to_mate_id (dict) key (str) is ID of breakpoint. val (str) is ID of mate
+#         bp_id_to_tuple   (dict) key (str) is ID of breakpoint. val (tuple) is (chrm_num, pos, direction)
+# output: bp_tuple_to_mate_tuple (dict) key is (tuple) is (chrm_num, pos, direction). val is mate tuple
+def get_bp_tuple_to_mate_tuple(bp_id_to_mate_id, bp_id_to_tuple):
+	out_dic = {}
+	bp_tuple_to_id = inv_dict(bp_id_to_tuple)
+	for tup, cur_id in bp_tuple_to_id.iteritems():
+		mate_id = bp_id_to_mate_id[cur_id]
+		mate_tup = bp_id_to_tuple[mate_id]
+		out_dic[tup] = mate_tup
+	return out_dic
+
+# inverts dictionary. keys become values. values become keys. must be able to be inverted so
+#   input keys must be static
+def inv_dict(dic):
+	idic = {}
+	for k, v in dic.iteritems():
+		idic[v] = k
+	return idic
+
+
 # given start and end position, output list of segment indices (continuous)
 def get_CN_indices(CN_startPos_dict, CN_endPos_dict, chrom, s, e):
 	result = list()
@@ -231,42 +299,9 @@ def get_CN_indices(CN_startPos_dict, CN_endPos_dict, chrom, s, e):
 	return result
 
 
-# return m by n np array, each row sum to one
-def random_get_usages(m, n):
-	a = get_usage_for_one_patient(n)
-	for i in range(1, m):
-		b = get_usage_for_one_patient(n)
-		a = np.concatenate((a, b), axis = 0)
-	return a
-
-
-# return a 1 by n np array sum to one
-def get_usage_for_one_patient(n):
-	a = np.random.dirichlet(np.ones(n),size = 1)
-	return a
-
-
 def is_cnv_record(rec):
 	return rec.ID[0:3] == 'cnv'
 
 
 def is_sv_record(rec):
 	return rec.ID[0:2] == 'sv'
-
-###########################################
-##### COMMAND LINE ARGUMENT FUNCTIONS #####
-###########################################
-
-def get_args(argv):
-	parser = argparse.ArgumentParser(prog = 'generate_matrices.py', description = "generate F, Q, A, H")
-	parser.add_argument('-d', '--input_folder', type = str, dest = "inputFolder", required = True)
-	# parser.add_argument('-o', '--output_file', type = str, dest = "outputFile", required = True)
-	parser.add_argument('-n', '--num_clone', type = int, dest = "numClone", required = True)
-	return vars(parser.parse_args(argv))
-
-##############################
-##### CALL MAIN FUNCTION #####
-##############################
-
-if __name__ == "__main__":
-	main(sys.argv[1:])

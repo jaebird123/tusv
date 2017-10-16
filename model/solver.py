@@ -134,7 +134,7 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha):
 	cst += _bin(C, C_bin, 2*n-1, l+r, c_max)
 	cst += _get_bp_appearance_constraints(C_bin, W, E, G, n, l)
 	cst += _get_sum_condition_constraints(C_bin, W, U, m, n, l)
-	cst += _get_bp_frequency_constraints(C, U, Q, A, H, m, n, l, r, alpha)
+	# cst += _get_bp_frequency_constraints(C, U, Q, A, H, m, n, l, r, alpha)
 
 	obj = cvx.Minimize(cvx.sum_entries(cvx.abs(F - U * C)) + lamb * float(m)/float(2*n-2) * cvx.sum_entries(R))
 	prb = cvx.Problem(obj, cst)

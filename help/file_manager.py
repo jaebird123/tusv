@@ -36,8 +36,30 @@ def valid_dir_ext(parser, arg, ext):
 	if not os.path.exists(arg):
 		parser.error('The directory \"' + str(arg) + '\" could not be found.')
 	arg = _directorize(arg)
-	if len(_files_with_extension(arg, ext)) == 0:
+	if len(_fnames_with_extension(arg, ext)) == 0:
 		parser.error('The directory \"' + str(arg) + '\" contained no ' + str(ext) + ' files.')
+	return arg
+
+#
+#   non-file maninging input functions
+#
+
+def valid_int_in_range(parser, arg, lo, hi):
+	try:
+		arg = int(arg)
+	except:
+		parser.error(str(arg) + ' must be an integer')
+	if arg < lo or arg > hi:
+		parser.error(str(arg) + ' must be an integer between ' + str(lo) + ' and ' + str(hi))
+	return arg
+
+def valid_float_above(parser, arg, lo):
+	try:
+		arg = float(arg)
+	except:
+		parser.error(str(arg) + ' must be a float')
+	if arg < lo:
+		parser.error(str(arg) + ' must be a float above ' + str(lo))
 	return arg
 
 
@@ -63,7 +85,7 @@ def _walklevel(some_dir, level = 0):
 			del dirs[:]
 
 # returns all files in the directory with extension ext (ex. ext = '.vcf')
-def _files_with_extension(directory, ext):
+def _fnames_with_extension(directory, ext):
 	files = []
 	for file in os.listdir(directory):
 		if file.endswith(ext):
