@@ -74,13 +74,19 @@ def main(argv):
 				Es.append(E)
 				obj_vals.append(obj_val)
 
-	print ''
+	best_i = 0
+	best_obj_val = obj_vals[best_i]
 	for i, obj_val in enumerate(obj_vals):
-		print obj_val
-		print Us[i]
-		print Cs[i]
-		print Es[i]
-		print ''
+		if obj_val < best_obj_val:
+			best_obj_val = obj_val
+			best_i = i
+		# print obj_val
+		# print Us[i]
+		# print Cs[i]
+		# print Es[i]
+		# print ''
+
+	write_to_files(args['output_directory'], Us[best_i], Cs[best_i], Es[i])
 
 def setup_get_UCE(args):
 	return sv.get_UCE(*args)
@@ -88,6 +94,14 @@ def setup_get_UCE(args):
 def printnow(s):
 	sys.stdout.write(s)
 	sys.stdout.flush()
+
+# d (str) is local directory path. all others are np.array
+def write_to_files(d, U, C, E):
+	fnames = [ d + fname for fname in ['U.tsv', 'C.tsv', 'T.dot'] ]
+	for fname in fnames:
+		fm.touch(fname)
+	np.savetxt(fnames[0], U, delimiter = '\t', fmt = '%.8f')
+	np.savetxt(fnames[1], C, delimiter = '\t', fmt = '%i')
 
 # temporary functions. REMOVE LATER!!!
 
