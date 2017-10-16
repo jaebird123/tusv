@@ -28,6 +28,7 @@ def get_mats(in_dir):
 	sampleList = fm._fnames_with_extension(in_dir, '.vcf')
 
 	m = len(sampleList)
+	sampleList.sort()
 
 	bp_id_to_mate_id, bp_id_to_tuple = {}, {}
 
