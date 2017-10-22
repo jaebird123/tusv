@@ -16,6 +16,7 @@ import argparse # for command line arguments
 import random
 import numpy as np
 import multiprocessing as mp
+from graphviz import Digraph
 
 # custom modules
 sys.path.insert(0, 'model/')
@@ -80,13 +81,8 @@ def main(argv):
 		if obj_val < best_obj_val:
 			best_obj_val = obj_val
 			best_i = i
-		# print obj_val
-		# print Us[i]
-		# print Cs[i]
-		# print Es[i]
-		# print ''
 
-	write_to_files(args['output_directory'], Us[best_i], Cs[best_i], Es[i])
+	write_to_files(args['output_directory'], Us[best_i], Cs[best_i], Es[best_i])
 
 def setup_get_UCE(args):
 	return sv.get_UCE(*args)
@@ -102,6 +98,23 @@ def write_to_files(d, U, C, E):
 		fm.touch(fname)
 	np.savetxt(fnames[0], U, delimiter = '\t', fmt = '%.8f')
 	np.savetxt(fnames[1], C, delimiter = '\t', fmt = '%i')
+	dot = to_dot(E)
+	open(fnames[2], 'w').write(dot.source) # write tree T in dot format
+	dot.render(d + 'T')                    # display tree T in .png
+
+
+#  input: E (np.array of int) [2n-1, 2n-1] 0 if no edge, 1 if edge between nodes i and j
+# output: dot (graphviz.dot.Digraph) directed tree representation of E
+def to_dot(E):
+	N = len(E)
+	dot = Digraph(format = 'png')
+	dot.node(str(N-1))
+	for i in xrange(N-1, -1, -1):
+		for j in xrange(N-1, -1, -1):
+			if int(E[i, j]) == 1:
+				dot.node(str(j))
+				dot.edge(str(i), str(j))
+	return dot
 
 # temporary functions. REMOVE LATER!!!
 

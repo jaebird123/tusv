@@ -1,0 +1,1 @@
+python tusv.py -i data/dummy/patient1/ -o data/tmp/ -n 3 -c 7 -a 3 -l 1 -t 2 -r 2 -p 2
