@@ -46,7 +46,8 @@ class ChrmProf:
 	#         read_len (int) length of a single random read
 	# output: svs (dict) key is breakpoint tuple. this contains position (int) and isLeft (bool) if segment extends left
 	#                    val is dict containing the following key-value pairs
-	#                        k: mate,       v: (breakpoint tuple) same (pos, isLeft) tuple but for mate
+	#                        k: mate        v: (breakpoint tuple) same (pos, isLeft) tuple but for mate
+	#                        k: copy_num    v: (int) number of copies where breakpoint apears next to mate
 	#                        k: mated_reads v: (int) number of reads containing this breakpoint and mate breakpoint
 	#                        k: total_reads v: (int) number of total reads ()
 	def get_sv_read_nums(self, cov, read_len):
@@ -83,6 +84,9 @@ class ChrmProf:
 				keys_to_remove.append(k)
 		for k in keys_to_remove:
 			del svs[k]
+
+		# add breakpoint copy numbers
+		_append_bp_copy_num(svs, self.mut)
 		
 		return svs
 
@@ -485,6 +489,20 @@ def _add_sv_to_dict(svs, cur, isBgn):
 			svs[curTup]['mated_reads'] += 1
 			svs[curTup]['mate'] = mateTup
 			svs[mateTup]['mate'] = curTup
+
+def _append_bp_copy_num(svs, mut_head):
+	cur = mut_head
+	while cur != None:
+		for isBgn in [True, False]:
+			curPos, curIsLeft = _get_cur_pos(cur, isBgn)
+			matPos, matIsLeft, _ = _get_mated_pos(cur, isBgn)
+			curTup = (curPos, curIsLeft)
+			matTup = (matPos, matIsLeft)
+			if curTup in svs and svs[curTup]['mate'] == matTup:
+				if 'copy_num' not in svs[curTup]:
+					svs[curTup]['copy_num'] = 0
+				svs[curTup]['copy_num'] += 1
+		cur = cur.r
 
 #
 #   DEEP COPY
