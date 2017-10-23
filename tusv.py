@@ -46,14 +46,14 @@ def main(argv):
 	args = get_args(argv)
 	
 	F, Q, G, A, H = gm.get_mats(args['input_directory'])
-	n, c_max, lamb, alpha = args['num_leaves'], args['c_max'], args['lambda'], args['alpha']
+	n, c_max, lamb1, lamb2 = args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2']
 	num_restarts, num_cd_iters, num_processors = args['restart_iters'], args['cord_desc_iters'], args['processors']
 
 	check_valid_input(Q, G, A, H)
 
 	p = mp.Pool(processes = num_processors)
 
-	arg_set = (F, Q, G, A, H, n, c_max, lamb, alpha, num_cd_iters)
+	arg_set = (F, Q, G, A, H, n, c_max, lamb1, lamb2, num_cd_iters)
 	arg_sets_to_use = [ arg_set for _ in xrange(0, num_restarts) ]
 
 	Us, Cs, Es, obj_vals = [], [], [], []
@@ -189,8 +189,8 @@ def get_args(argv):
 	parser.add_argument('-o', '--output_directory', required = True, type = lambda x: fm.valid_dir(parser, x), help = 'empty directory for output U.tsv, C.tsv, and T.dot files to go')
 	parser.add_argument('-n', '--num_leaves', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 2, MAX_NUM_LEAVES), help = 'number of leaves for inferred binary tree. total number of nodes will be 2*n-1')
 	parser.add_argument('-c', '--c_max', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_COPY_NUM), help = 'maximum allowed copy number at any node in the tree')
-	parser.add_argument('-l', '--lambda', required = True, type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'regularization term to weight total tree cost against unmixing error in objective function. setting as 0.0 will put no tree cost constraint. setting as 1.0 will equally consider tree cost and unmixing error.')
-	parser.add_argument('-a', '--alpha', required = True, type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'number of standard deviations allowed for estimator of breakpoint frequency')
+	parser.add_argument('-l', '--lambda1', required = True, type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'regularization term to weight total tree cost against unmixing error in objective function. setting as 0.0 will put no tree cost constraint. setting as 1.0 will equally consider tree cost and unmixing error.')
+	parser.add_argument('-a', '--lambda2', required = True, type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'regularization term to weight error in inferred ratio between copy number of a breakpoint and the copy number of the segment originally containing the position of breakpoint')
 	parser.add_argument('-t', '--cord_desc_iters', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_CORD_DESC_ITERS), help = 'maximum number of cordinate descent iterations for each initialization of U')
 	parser.add_argument('-r', '--restart_iters', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_RESTART_ITERS), help = 'number of random initializations for picking usage matrix U')
 	parser.add_argument('-p', '--processors', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, NUM_CORES), help = 'number of processors to use')

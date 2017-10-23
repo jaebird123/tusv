@@ -38,8 +38,8 @@ MAX_SOLVER_ITERS = 5000
 #         H (np.array of int) [m, l] h_p,b is number of total reads for breakpoint b in sample p
 #         n (int) number of leaves in phylogeny. 2n-1 is total number of nodes
 #         c_max (int) maximum allowed copy number for any element in output C
-#         lamb (float) regularization term to weight total tree cost against unmixing error
-#         alpha (float) number of standard deviations allowed for estimator of breakpoint frequency
+#         lamb1 (float) regularization term to weight total tree cost against unmixing error
+#         lamb2 (float) regularization term to weight breakpoint frequency error
 #         max_iters (int) maximum number of iterations to predict U then C if convergence not reached
 # output: U (np.array of float) [m, 2n-1] 0 <= u_p,k <= 1. percent of sample p made by clone k
 #         C (np.array of int) [2n-1, l+r] int copy number c_k,s of mutation s in clone k
@@ -47,7 +47,7 @@ MAX_SOLVER_ITERS = 5000
 #         obj_val (float) objective value of final solution
 #         err_msg (None or str) None if no error occurs. str with error message if one does
 #  notes: l (int) is number of structural variants. r (int) is number of copy number regions
-def get_UCE(F, Q, G, A, H, n, c_max, lamb, alpha, max_iters):
+def get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters):
 	np.random.seed() # sets seed for running on multiple processors
 	m = len(F)
 
@@ -58,7 +58,7 @@ def get_UCE(F, Q, G, A, H, n, c_max, lamb, alpha, max_iters):
 		else:
 			U = get_U(F, C, n)
 
-		obj_val, C, E, R, err_msg = get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha)
+		obj_val, C, E, R, err_msg = get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2)
 
 		# handle errors
 		if err_msg != None:
@@ -108,15 +108,15 @@ def get_U(F, C, n):
 #         H (np.array of int) [m, l] h_p,b is number of total reads for breakpoint b in sample p
 #         n (int) number of leaves in phylogeny. 2n-1 is total number of nodes
 #         c_max (int) maximum allowed copy number for any element in output C
-#         lamb (float) regularization term to weight total tree cost against unmixing error
-#         alpha (float) number of standard deviations allowed for estimator of breakpoint frequency
+#         lamb1 (float) regularization term to weight total tree cost against unmixing error
+#         lamb2 (float) regularization term to weight breakpoint frequency error
 # output: obj_val (float) objective value of solution
 #         C (np.array of int) [2n-1, l+r] int copy number c_k,s of mutation s in clone k
 #         E (np.array of int) [2n-1, 2n-1] e_i,j == 1 iff edge (i,j) is in tree. 0 otherwise
 #         R (np.array of int) [2n-1, 2n-1] cost of each edge in the tree
 #         err_msg (None or str) None if no error occurs. str with error message if one does
 #  notes: l (int) is number of structural variants. r (int) is number of copy number regions
-def get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha):
+def get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2):
 	l, r = Q.shape
 	m, _ = U.shape
 	C = cvx.Int(2 * n - 1, l + r)
@@ -125,6 +125,10 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha):
 	R = cvx.Int(2 * n - 1, 2 * n - 1) # rho. cost across each edge
 	W = _get_bp_appearance_var(n, l)  # w_bin (dict). binary breakpoint appearance indicator
 	C_bin = cvx.Int(2*n-1, l+r)       # binary representation of C. C_bin = (C == 1)
+	Gam = cvx.Int(2*n-1, l)           # gamma. copy number of segment containing breakpoint
+
+	F_seg = F[:, l:].dot(np.transpose(Q)) # [m, l] mixed copy number of segment containing breakpoint
+	Pi = np.divide(F[:, :l], F_seg)       # [m, l] expected bpf (ratio of bp copy num to segment copy num)
 
 	# add constraints
 	cst = []
@@ -134,9 +138,14 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb, alpha):
 	cst += _bin(C, C_bin, 2*n-1, l+r, c_max)
 	cst += _get_bp_appearance_constraints(C_bin, W, E, G, n, l)
 	cst += _get_sum_condition_constraints(C_bin, W, U, m, n, l)
+	cst += _get_segment_copy_num_constraints(Gam, C, Q, W, m, n, l, r)
 	# cst += _get_bp_frequency_constraints(C, U, Q, A, H, m, n, l, r, alpha)
 
-	obj = cvx.Minimize(cvx.sum_entries(cvx.abs(F - U * C)) + lamb * float(m)/float(2*n-2) * cvx.sum_entries(R))
+	coef_1 = 1.0 / float(m * (l + r)) # normalizing for worst case F - U * C
+	coef_2 = 1.0 / float(r * (2*n-1)) # normalizing for worst case cost of tree (R)
+	coef_3 = 1.0 / float(m * l)       # normalizing for worst case difference in segment estimate using bpf for bp copy num
+	S = cvx.abs(cvx.mul_elemwise(Pi, cvx.sum_entries(U * Gam)) - cvx.sum_entries(U * C[:, :l]))
+	obj = cvx.Minimize(coef_1 * cvx.sum_entries(cvx.abs(F - U * C)) + lamb1 * coef_2 * cvx.sum_entries(R) + lamb2 * coef_3 * cvx.sum_entries(S))
 	prb = cvx.Problem(obj, cst)
 
 	try:
@@ -304,7 +313,30 @@ def _get_sum_condition_constraints(C_bin, W, U, m, n, l):
 	for p in xrange(0, m):        # cell fraction of breakpoint in parent must be > cell frac in child
 		for s in xrange(0, l):
 			for t in xrange(0, l):
-				cst.append(Phi[p, s] >= Phi[p, t] - 1 + D[s, t] - 10)
+				cst.append(Phi[p, s] >= Phi[p, t] - 1 + D[s, t])
+
+	return cst
+
+#  input: Gam (cvx.Int) [2n-1, l] copy number g_k,b if segment containing breakpoint b in clone k
+#                                 should have no constraints added so far!
+#         C (cvx.Int) [2n-1, l+r] copy number c_k,s of mutation s in clone k
+#         Q (np.array of 0 or 1) [l, r] q_b,s == 1 if breakpoint b is in segment s. 0 otherwise
+#         W (dict of cvx.Int) key is bp_index (int). val is w_i,j (cvx.Int) == 1 iff bp b appears on edge (i,j)
+# output: cst (list of cvx.Constraint)
+#   does: constrains Gamma (segment copy number) to be at least 1 when bp appears and always greater than bp cp num
+def _get_segment_copy_num_constraints(Gam, C, Q, W, m, n, l, r):
+	N = 2*n-1
+	cst = []
+
+	for k in xrange(0, N):
+		for b in xrange(0, l):
+			cst.append(Gam[k, b] == sum([ Q[b, s] * C[k, l+s] for s in xrange(0, r) ]))
+
+	cst.append(C[:, :l] <= Gam) # copy number of breakpoint cannot exceed copy number of segment containing bp
+
+	for b in xrange(0, l):   # copy number of segment containing bp must be at least 1 if bp appears at node j
+		for j in xrange(0, N):
+			cst.append(Gam[j, b] >= sum([ W[b][i, j] for i in xrange(0, N) ]))
 
 	return cst
 
