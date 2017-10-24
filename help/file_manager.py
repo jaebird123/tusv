@@ -40,6 +40,19 @@ def valid_dir_ext(parser, arg, ext):
 		parser.error('The directory \"' + str(arg) + '\" contained no ' + str(ext) + ' files.')
 	return arg
 
+#  input: parser (argparser.parser)
+#         arg (str) full path of directory
+#         fnames (list of str) names of files in directory. directory must contain all these files
+# output: arg (str) full path of directory with '/' as needed
+def valid_dir_with_files(parser, arg, fnames):
+	if not os.path.exists(arg):
+		parser.error('The directory \"' + str(arg) + '\" could not be found.')
+	arg = _directorize(arg)
+	fnames_not_found = _fnames_not_found(arg, fnames)
+	if len(fnames_not_found) > 0:
+		parser.error('The directory \"' + str(arg) + '\" did not contain ' + ', '.join(fnames_not_found) + ' file(s).')
+	return arg
+
 #
 #   non-file maninging input functions
 #
@@ -91,3 +104,7 @@ def _fnames_with_extension(directory, ext):
 		if file.endswith(ext):
 			files.append(file)
 	return files
+
+def _fnames_not_found(directory, fnames):
+	fnames_found = [ fname for fname in os.listdir(directory) ]
+	return list(set(fnames) - set(fnames_found))
