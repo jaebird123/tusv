@@ -70,16 +70,20 @@ def make_2d_list(r,c):
 def make_matrices(m, l, r, sampleList, BP_sample_dict, BP_idx_dict, CN_sample_rec_dict, CN_startPos_dict, CN_endPos_dict):
 	F, Q, A, H = make_2d_list(m, l + r), make_2d_list(l, r), make_2d_list(m, l), make_2d_list(m, l)
 
+	# make list of segment boundaries. used to set Q to 1 even if bp not on edge of segment
+	seg_dic = _get_seg_bgn_end_pos(CN_startPos_dict, CN_endPos_dict)
+
 	for sample_idx in range(len(sampleList)):
 		sample = sampleList[sample_idx]
 		for chrom in BP_sample_dict[sample]:
 			for pos in BP_sample_dict[sample][chrom]:
 				temp_bp_info_dict = BP_sample_dict[sample][chrom][pos] # dictionary
-				cn, direction, bdp, dp = temp_bp_info_dict['cn'], temp_bp_info_dict['dir'], temp_bp_info_dict['bdp'], temp_bp_info_dict['dp']
+				# cn, direction, bdp, dp = temp_bp_info_dict['cn'], temp_bp_info_dict['dir'], temp_bp_info_dict['bdp'], temp_bp_info_dict['dp']
+				cn, direction, = temp_bp_info_dict['cn'], temp_bp_info_dict['dir']
 				bp_idx = BP_idx_dict[(chrom, pos, direction)]
 				F[sample_idx][bp_idx] = cn
-				A[sample_idx][bp_idx] = bdp
-				H[sample_idx][bp_idx] = dp
+				# A[sample_idx][bp_idx] = bdp
+				# H[sample_idx][bp_idx] = dp
 
 				if direction == False and (chrom, pos) in CN_endPos_dict:
 					cn_idx = CN_endPos_dict[(chrom, pos)]
@@ -87,6 +91,10 @@ def make_matrices(m, l, r, sampleList, BP_sample_dict, BP_idx_dict, CN_sample_re
 				elif direction == True and (chrom, pos) in CN_startPos_dict:
 					cn_idx = CN_startPos_dict[(chrom, pos)]
 					Q[bp_idx][cn_idx] = 1
+				else: # search through all posible segments where bp could lie
+					cn_idx = _get_seg_idx(seg_dic[chrom], pos)
+					if cn_idx != None:
+						Q[bp_idx][cn_idx] = 1
 
 		for chrom in CN_sample_rec_dict[sample]:
 			for (s,e) in CN_sample_rec_dict[sample][chrom]:
@@ -96,6 +104,39 @@ def make_matrices(m, l, r, sampleList, BP_sample_dict, BP_idx_dict, CN_sample_re
 					F[sample_idx][cn_idx + l] = cn
 
 	return F, Q, A, H
+
+#  input: segs (list of tuple) tuple is ( seg_idx, bgn_pos, end_pos ) for segments of a single chromosome
+#         pos (int) position of segment that will be returned
+# output: i (int) index of segment where pos lies
+def _get_seg_idx(segs, pos):
+	for idx, bgn, end in segs:
+		if bgn <= pos and pos <= end:
+			return idx
+	return None
+
+
+# output: seg_dic (dict) key is chrm (int). val is segs (list of tuple)
+#                                           tuple is ( seg_idx, bgn_pos, end_pos ) of each segment
+# (list of tuple) tuple is ( chrm, bgn_pos, end_pos ) for each segment
+def _get_seg_bgn_end_pos(CN_startPos_dict, CN_endPos_dict):
+	idx_to_bgn = _inv_dic(CN_startPos_dict)
+	idx_to_end = _inv_dic(CN_endPos_dict)
+	idxs = sorted(idx_to_bgn.keys())
+	seg_dic = {}
+	for i in idxs:
+		chm, bgn = idx_to_bgn[i]
+		_, end = idx_to_end[i]
+		if chm not in seg_dic:
+			seg_dic[chm] = []
+		seg_dic[chm].append((i, bgn, end))
+	return seg_dic
+
+# inverts dictionary so keys become values, values become keys
+def _inv_dic(dic):
+	inv_dic = {}
+	for k, v in dic.iteritems():
+		inv_dic[v] = k
+	return inv_dic
 
 
 # key: (chrom, pos, dir)
@@ -163,11 +204,12 @@ def get_sample_dict(reader):
 			BP_sample_dict[rec.CHROM][rec.POS]['mate_dir'] = rec.ALT[0].remoteOrientation
 			# BP_sample_dict[rec.CHROM][rec.POS]['mate_id'] = rec.INFO['MATEID']
 			BP_sample_dict[rec.CHROM][rec.POS]['mate_pos'] = rec.ALT[0].pos
+			BP_sample_dict[rec.CHROM][rec.POS]['mate_chr'] = rec.ALT[0].chr
 
 			bp_id_to_mate_id[rec.ID] = rec.INFO['MATEID'][0]
 			
-			BP_sample_dict[rec.CHROM][rec.POS]['bdp'] = rec.samples[0].data.BDP
-			BP_sample_dict[rec.CHROM][rec.POS]['dp'] = rec.samples[0].data.DP
+			# BP_sample_dict[rec.CHROM][rec.POS]['bdp'] = rec.samples[0].data.BDP
+			# BP_sample_dict[rec.CHROM][rec.POS]['dp'] = rec.samples[0].data.DP
 		elif is_cnv_record(rec) == True:
 			if rec.CHROM not in CN_sample_dict:
 				CN_sample_dict[rec.CHROM] = dict()
@@ -178,7 +220,9 @@ def get_sample_dict(reader):
 
 	for chrom in BP_sample_dict:
 		for pos in BP_sample_dict[chrom]:
-			BP_sample_dict[chrom][pos]['dir'] = BP_sample_dict[chrom][BP_sample_dict[chrom][pos]['mate_pos']]['mate_dir']
+			mate_chr = BP_sample_dict[chrom][pos]['mate_chr']
+			mate_pos = BP_sample_dict[chrom][pos]['mate_pos']
+			BP_sample_dict[chrom][pos]['dir'] = BP_sample_dict[mate_chr][mate_pos]['mate_dir']
 
 			bp_id = BP_sample_dict[chrom][pos]['id']
 			bp_id_to_tuple[bp_id] = (chrom, pos, BP_sample_dict[chrom][pos]['dir'])
