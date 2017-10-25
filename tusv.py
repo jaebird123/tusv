@@ -184,7 +184,7 @@ def raiseif(should_raise, msg):
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 def get_args(argv):
-	parser = argparse.ArgumentParser(prog = 'template.py', description = "purpose")
+	parser = argparse.ArgumentParser(prog = 'template.py', description = "unmixes mixed copy numbers for breakpoints and segments and infers phylogeny with various phylogenetic constraints")
 	parser.add_argument('-i', '--input_directory', required = True, type = lambda x: fm.valid_dir_ext(parser, x, '.vcf'), help = 'directory containing a .vcf for each sample from a single patient')
 	parser.add_argument('-o', '--output_directory', required = True, type = lambda x: fm.valid_dir(parser, x), help = 'empty directory for output U.tsv, C.tsv, and T.dot files to go')
 	parser.add_argument('-n', '--num_leaves', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 2, MAX_NUM_LEAVES), help = 'number of leaves for inferred binary tree. total number of nodes will be 2*n-1')

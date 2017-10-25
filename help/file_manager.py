@@ -53,6 +53,40 @@ def valid_dir_with_files(parser, arg, fnames):
 		parser.error('The directory \"' + str(arg) + '\" did not contain ' + ', '.join(fnames_not_found) + ' file(s).')
 	return arg
 
+#  input: parser (argparser.parser)
+#         arg (str) full path of directory contining subdirectories
+#         fnames (list of str) names of files in subdirectories. subdirectories must contain all these files
+#         ext (str) extension (ex: .vcf). subdirectories must have at least one of these files
+# output: arg (str) full path of directory with '/' as needed
+def valid_master_dir_with_files_and_ext(parser, arg, fnames, ext):
+	if not os.path.exists(arg):
+		parser.error('The directory \"' + str(arg) + '\" could not be found.')
+	arg = _directorize(arg)
+	for subdir, dirs, _ in _walklevel(arg):
+		if not dirs:
+			parser.error('The directory \"' + str(subdir) + '\" has no subdirectories.')
+		for d in dirs:
+			valid_dir_with_files(parser, arg + d, fnames)
+			valid_dir_ext(parser, arg + d, ext)
+	return arg
+
+
+#
+#   File creation functions
+#
+
+# copies file structure (only one level deep) from in_dir to out_dir
+def cp_file_structure_to_out_dir(in_dir, out_dir):
+	for _, subdirs, _ in _walklevel(in_dir):
+		ot_subdirs = [ _directorize(out_dir + d) for d in subdirs ]
+		for ot_subdir in ot_subdirs:
+			if not os.path.exists(ot_subdir):
+				os.makedirs(ot_subdir)
+
+def get_subdir_names(d):
+	for _, subdirs, _ in _walklevel(d):
+		return [ _directorize(s) for s in subdirs ]
+
 #
 #   non-file maninging input functions
 #
