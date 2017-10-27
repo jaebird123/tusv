@@ -76,8 +76,9 @@ def main(argv):
 		for res in p.imap_unordered(setup_get_UCE, arg_sets):
 			U, C, E, R, W, obj_val, err_msg = res
 			if err_msg != None:
-				arg_sets_to_use.append(arg_set)
-				printnow('failure... putting task back on the queue\n')
+				# arg_sets_to_use.append(arg_set)
+				# printnow('failure... putting task back on the queue\n')
+				printnow('failure... task terminated\n')
 			else:
 				num_complete += 1
 				printnow(str(num_complete) + ' of ' + str(num_restarts) + ' complete\n')
