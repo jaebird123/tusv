@@ -335,7 +335,6 @@ def make_G(bp_tuple_to_idx, bp_id_to_mate_id, bp_id_to_tuple):
 		cur_tuple = bp_idx_to_tuple[i]
 		mate_tup = bp_tuple_to_mate_tuple[cur_tuple]
 		j = bp_tuple_to_idx[mate_tup]
-		print j
 		G[i, j] = 1
 
 	return G

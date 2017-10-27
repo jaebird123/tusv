@@ -44,6 +44,8 @@ MAX_SOLVER_ITERS = 5000
 # output: U (np.array of float) [m, 2n-1] 0 <= u_p,k <= 1. percent of sample p made by clone k
 #         C (np.array of int) [2n-1, l+r] int copy number c_k,s of mutation s in clone k
 #         E (np.array of int) [2n-1, 2n-1] e_i,j == 1 iff edge (i,j) is in tree. 0 otherwise
+#         R (np.array of int) [2n-1, 2n-1] cost of each edge in the tree
+#         W_all (np.array of int) [2n-1, 2n-1] number of breakpoints appearing along each edge in tree
 #         obj_val (float) objective value of final solution
 #         err_msg (None or str) None if no error occurs. str with error message if one does
 #  notes: l (int) is number of structural variants. r (int) is number of copy number regions
@@ -58,15 +60,19 @@ def get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters):
 		else:
 			U = get_U(F, C, n)
 
-		obj_val, C, E, R, err_msg = get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2)
+		obj_val, C, E, R, W, err_msg = get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2)
 
 		# handle errors
 		if err_msg != None:
-			return None, None, None, None, err_msg
+			return None, None, None, None, None, None, err_msg
 
-		# C_diff = abs((C - C_prv)).sum() # could possibly return
+		if i > 0:
+			if abs((C - prevC)).sum() == 0:
+				break
 
-	return U, C, E, obj_val, None
+		prevC = C
+
+	return U, C, E, R, W, obj_val, None
 
 
 #  input: F (np.array of float) [m, l+r] mixed copy number f_p,s of mutation s in sample p
@@ -114,6 +120,7 @@ def get_U(F, C, n):
 #         C (np.array of int) [2n-1, l+r] int copy number c_k,s of mutation s in clone k
 #         E (np.array of int) [2n-1, 2n-1] e_i,j == 1 iff edge (i,j) is in tree. 0 otherwise
 #         R (np.array of int) [2n-1, 2n-1] cost of each edge in the tree
+#         W_all (np.array of int) [2n-1, 2n-1] number of breakpoints appearing along each edge in tree
 #         err_msg (None or str) None if no error occurs. str with error message if one does
 #  notes: l (int) is number of structural variants. r (int) is number of copy number regions
 def get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2):
@@ -141,25 +148,25 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2):
 	cst += _get_segment_copy_num_constraints(Gam, C, Q, W, m, n, l, r)
 	# cst += _get_bp_frequency_constraints(C, U, Q, A, H, m, n, l, r, alpha)
 
-	coef_1 = 1.0 / float(m * (l + r)) # normalizing for worst case F - U * C
-	coef_2 = 1.0 / float(r * (2*n-1)) # normalizing for worst case cost of tree (R)
-	coef_3 = 1.0 / float(m * l)       # normalizing for worst case difference in segment estimate using bpf for bp copy num
 	S = cvx.abs(cvx.mul_elemwise(Pi, cvx.sum_entries(U * Gam)) - cvx.sum_entries(U * C[:, :l]))
-	obj = cvx.Minimize(coef_1 * cvx.sum_entries(cvx.abs(F - U * C)) + lamb1 * coef_2 * cvx.sum_entries(R) + lamb2 * coef_3 * cvx.sum_entries(S))
+	obj = cvx.Minimize(cvx.sum_entries(cvx.abs(F - U * C)) + lamb1 * cvx.sum_entries(R) + lamb2 * cvx.sum_entries(S))
 	prb = cvx.Problem(obj, cst)
 
 	try:
 		prb.solve(solver = cvx.GUROBI, max_iters = MAX_SOLVER_ITERS)
 	except:
-		return None, None, None, None, "ERROR: solving with " + str(cvx.GUROBI) + " did not work"
+		return None, None, None, None, None, "ERROR: solving with " + str(cvx.GUROBI) + " did not work"
 
 	if prb.status == cvx.OPTIMAL:
 		C = np.array(C.value.round())
 		R = np.array(R.value.round())
 		E = np.array(E.value.round())
-		return prb.value, C, E, R, None
+		W_all = np.zeros((2*n-1, 2*n-1))
+		for _, w in W.iteritems():
+			W_all = W_all + w.value.round()
+		return prb.value, C, E, R, W_all, None
 
-	return prb.value, None, None, None, "error when solving: " + str(prb.status)
+	return prb.value, None, None, None, None, "error when solving: " + str(prb.status)
 
 # # # # # # # # # # # # # # # # # # # # # # # #
 #   C O N S T R A I N T   F U N C T I O N S   #

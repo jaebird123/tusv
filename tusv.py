@@ -46,6 +46,14 @@ def main(argv):
 	args = get_args(argv)
 	
 	F, Q, G, A, H = gm.get_mats(args['input_directory'])
+	l, r = Q.shape
+	m = len(F)
+
+	if args['lambda1'] == None:
+		args['lambda1'] = float(r) / float(l + r) * float(2 * args['num_leaves'] - 2) / float(m) # r/(l+r) * (2n-2)/m
+	if args['lambda2'] == None:
+		args['lambda2'] = float(l) / float(l + r)
+
 	n, c_max, lamb1, lamb2 = args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2']
 	num_restarts, num_cd_iters, num_processors = args['restart_iters'], args['cord_desc_iters'], args['processors']
 
@@ -57,13 +65,14 @@ def main(argv):
 	arg_sets_to_use = [ arg_set for _ in xrange(0, num_restarts) ]
 
 	Us, Cs, Es, obj_vals = [], [], [], []
+	Rs, Ws = [], []
 	num_complete = 0
 	while arg_sets_to_use:
 		arg_sets = arg_sets_to_use
 		arg_sets_to_use = []
 
 		for res in p.imap_unordered(setup_get_UCE, arg_sets):
-			U, C, E, obj_val, err_msg = res
+			U, C, E, R, W, obj_val, err_msg = res
 			if err_msg != None:
 				arg_sets_to_use.append(arg_set)
 				printnow('failure... putting task back on the queue\n')
@@ -73,6 +82,8 @@ def main(argv):
 				Us.append(U)
 				Cs.append(C)
 				Es.append(E)
+				Rs.append(R)
+				Ws.append(W)
 				obj_vals.append(obj_val)
 
 	best_i = 0
@@ -82,7 +93,7 @@ def main(argv):
 			best_obj_val = obj_val
 			best_i = i
 
-	write_to_files(args['output_directory'], Us[best_i], Cs[best_i], Es[best_i])
+	write_to_files(args['output_directory'], Us[best_i], Cs[best_i], Es[best_i], Rs[best_i], Ws[best_i], F, obj_vals[best_i])
 
 def setup_get_UCE(args):
 	return sv.get_UCE(*args)
@@ -92,28 +103,37 @@ def printnow(s):
 	sys.stdout.flush()
 
 # d (str) is local directory path. all others are np.array
-def write_to_files(d, U, C, E):
-	fnames = [ d + fname for fname in ['U.tsv', 'C.tsv', 'T.dot'] ]
+def write_to_files(d, U, C, E, R, W, F, obj_val):
+	fnames = [ d + fname for fname in ['U.tsv', 'C.tsv', 'T.dot', 'F.tsv', 'obj_val.txt'] ]
 	for fname in fnames:
 		fm.touch(fname)
 	np.savetxt(fnames[0], U, delimiter = '\t', fmt = '%.8f')
 	np.savetxt(fnames[1], C, delimiter = '\t', fmt = '%i')
-	dot = to_dot(E)
+	np.savetxt(fnames[3], F, delimiter = '\t', fmt = '%.8f')
+	np.savetxt(fnames[4], np.array([obj_val]), delimiter = '\t', fmt = '%.8f')
+	dot = to_dot(E, R, W)
 	open(fnames[2], 'w').write(dot.source) # write tree T in dot format
 	dot.render(d + 'T')                    # display tree T in .png
 
+	# file = open(fname[4], "w") # write objective value to separate file
+	# file.write(obj_val)
+	# file.close()
+
 
 #  input: E (np.array of int) [2n-1, 2n-1] 0 if no edge, 1 if edge between nodes i and j
+#         R (np.array of int) [2n-1, 2n-1] cost of each edge in the tree
+#         W (np.array of int) [2n-1, 2n-1] number of breakpoints appearing along each edge in tree
 # output: dot (graphviz.dot.Digraph) directed tree representation of E
-def to_dot(E):
+def to_dot(E, R, W):
 	N = len(E)
 	dot = Digraph(format = 'png')
 	dot.node(str(N-1))
 	for i in xrange(N-1, -1, -1):
 		for j in xrange(N-1, -1, -1):
 			if int(E[i, j]) == 1:
+				edge_label = ' ' + str(int(R[i, j])) + '/' + str(int(W[i, j]) / 2)
 				dot.node(str(j))
-				dot.edge(str(i), str(j))
+				dot.edge(str(i), str(j), label = edge_label)
 	return dot
 
 # temporary functions. REMOVE LATER!!!
@@ -189,8 +209,8 @@ def get_args(argv):
 	parser.add_argument('-o', '--output_directory', required = True, type = lambda x: fm.valid_dir(parser, x), help = 'empty directory for output U.tsv, C.tsv, and T.dot files to go')
 	parser.add_argument('-n', '--num_leaves', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 2, MAX_NUM_LEAVES), help = 'number of leaves for inferred binary tree. total number of nodes will be 2*n-1')
 	parser.add_argument('-c', '--c_max', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_COPY_NUM), help = 'maximum allowed copy number at any node in the tree')
-	parser.add_argument('-l', '--lambda1', required = True, type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'regularization term to weight total tree cost against unmixing error in objective function. setting as 0.0 will put no tree cost constraint. setting as 1.0 will equally consider tree cost and unmixing error.')
-	parser.add_argument('-a', '--lambda2', required = True, type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'regularization term to weight error in inferred ratio between copy number of a breakpoint and the copy number of the segment originally containing the position of breakpoint')
+	parser.add_argument('-l', '--lambda1', type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'regularization term to weight total tree cost against unmixing error in objective function. setting as 0.0 will put no tree cost constraint. setting as 1.0 will equally consider tree cost and unmixing error.')
+	parser.add_argument('-a', '--lambda2', type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'regularization term to weight error in inferred ratio between copy number of a breakpoint and the copy number of the segment originally containing the position of breakpoint')
 	parser.add_argument('-t', '--cord_desc_iters', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_CORD_DESC_ITERS), help = 'maximum number of cordinate descent iterations for each initialization of U')
 	parser.add_argument('-r', '--restart_iters', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_RESTART_ITERS), help = 'number of random initializations for picking usage matrix U')
 	parser.add_argument('-p', '--processors', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, NUM_CORES), help = 'number of processors to use')
