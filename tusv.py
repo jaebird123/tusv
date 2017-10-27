@@ -50,9 +50,11 @@ def main(argv):
 	m = len(F)
 
 	if args['lambda1'] == None:
-		args['lambda1'] = float(r) / float(l + r) * float(2 * args['num_leaves'] - 2) / float(m) # r/(l+r) * (2n-2)/m
+		# args['lambda1'] = float(r) / float((l + r) * m) # r/(l+r) * 1/m
+		args['lambda1'] = 0.05
 	if args['lambda2'] == None:
-		args['lambda2'] = float(l) / float(l + r)
+		args['lambda2'] = 0.05
+		# args['lambda2'] = float(l) / float(l + r)
 
 	n, c_max, lamb1, lamb2 = args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2']
 	num_restarts, num_cd_iters, num_processors = args['restart_iters'], args['cord_desc_iters'], args['processors']

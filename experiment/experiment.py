@@ -49,26 +49,32 @@ def main(argv):
 	subdir_names = fm.get_subdir_names(args['input_directory'])
 	n, c, l, a, t, r, p = args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['cord_desc_iters'], args['restart_iters'], args['processors']
 
-	CBs, CSs, Us, Ts = [], [], [], [] # scores for copy number of breakpoints, segments, usages and phylogeny
+	CBs, CSs, Cs, Us, Ts, FUCs, objs = [], [], [], [], [], [], [] # scores for copy number of breakpoints, segments, usages and phylogeny
 	for subdir_name in subdir_names:
 		in_dir = args['input_directory'] + subdir_name
 		out_dir = args['output_directory'] + subdir_name
 		pt.printnow('\nrunning ' + subdir_name)
-		run_experiment(in_dir, out_dir, n, c, l, a, t, r, p)
-		score_Cb, score_Cs, score_U, dist_T = vd.get_scores(out_dir, in_dir)
-		pt.printnow(str(score_Cb))
-		pt.printnow(str(score_Cs))
-		pt.printnow(str(score_U))
-		pt.printnow(str(dist_T))
+		# run_experiment(in_dir, out_dir, n, c, l, a, t, r, p)
+		score_Cb, score_Cs, score_C, score_U, dist_T, score_FUC, obj_val = vd.get_scores(out_dir, in_dir)
+		pt.printnow(' Cb: ' + str(score_Cb))
+		pt.printnow(' Cs: ' + str(score_Cs))
+		pt.printnow('  C: ' + str(score_C))
+		pt.printnow('  U: ' + str(score_U))
+		pt.printnow('  T: ' + str(dist_T))
+		pt.printnow('FUC: ' + str(score_FUC))
+		pt.printnow('obj: ' + str(obj_val))
 
 		CBs.append(score_Cb)
 		CSs.append(score_Cs)
+		Cs.append(score_C)
 		Us.append(score_U)
 		Ts.append(dist_T)
+		FUCs.append(score_FUC)
+		objs.append(obj_val)
 
-	report(args['input_directory'], args['output_directory'], CBs, CSs, Us, Ts)
+	report(args['input_directory'], args['output_directory'], CBs, CSs, Cs, Us, Ts, FUCs, objs)
 
-def report(in_dir, out_dir, CBs, CSs, Us, Ts):
+def report(in_dir, out_dir, CBs, CSs, Cs, Us, Ts, FUCs, obj_vals):
 	fname = out_dir + REPORT_FNAME
 	fm.touch(fname)
 
@@ -79,17 +85,21 @@ def report(in_dir, out_dir, CBs, CSs, Us, Ts):
 	pt.printnow(' input directory: ' + in_dir)
 	pt.printnow('output directory: ' + out_dir + '\n')
 
-	res_dic = collections.OrderedDict()
-	res_dic['copy number of breakpoints'] = CBs
-	res_dic['copy number of segments'] = CSs
-	res_dic['usage (percent cell types)'] = Us
-	res_dic['tree topology'] = Ts
+	results = [
+		('|C_tru - C_obs| breakpoints only', CBs),
+		('|C_tru - C_obs| segments only', CSs),
+		('|C_tru - C_obs|', Cs),
+		('|U_tru - U_obs|', Us),
+		('|T_tru - T_obs| robinson foulds distane', Ts),
+		('|F - UC|', FUCs),
+		('|F - UC| + L1*tree_cost + L2*', obj_vals)
+	]
 
-	for msg, X in res_dic.iteritems():
-		pt.printnow('L1 distance for ' + msg)
-		pt.printnow('  all: ' + ', '.join([ str(x) for x in sorted(X) ]))
-		pt.printnow('  avg: ' + str(np.average(X)))
-		pt.printnow('  std: ' + str(np.std(X)))
+	for msg, vals in results:
+		pt.printnow(msg)
+		pt.printnow('  all: ' + ', '.join([ str(val) for val in sorted(vals) ]))
+		pt.printnow('  avg: ' + str(np.average(vals)))
+		pt.printnow('  std: ' + str(np.std(vals)))
 		pt.printnow('')
 
 	sys.stdout = orig_stdout
@@ -99,7 +109,12 @@ def report(in_dir, out_dir, CBs, CSs, Us, Ts):
 def run_experiment(indir, otdir, n, c, l, a, t, r, p):
 	old_path = os.getcwd()
 	os.chdir('..')
-	cmd = ' '.join(['python', 'tusv.py', '-i', indir, '-o', otdir, '-n', str(n), '-c', str(c), '-l', str(l), '-a', str(a), '-t', str(t), '-r', str(r), '-p', str(p)])
+	cmd_lst = ['python', 'tusv.py', '-i', indir, '-o', otdir, '-n', str(n), '-c', str(c), '-t', str(t), '-r', str(r), '-p', str(p)]
+	if l != None:
+		cmd_lst += ['-l', str(l)]
+	if a != None:
+		cmd_lst += ['-a', str(a)]
+	cmd = ' '.join(cmd_lst)
 	for line in execute(cmd):
 		pt.printnow(line, newline = False)
 	os.chdir(old_path)
@@ -124,8 +139,8 @@ def get_args(argv):
 	parser.add_argument('-o', '--output_directory', required = True, type = lambda x: fm.valid_dir(parser, x), help = 'directory where results from each experiment will go')
 	parser.add_argument('-n', '--num_leaves', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 2, MAX_NUM_LEAVES), help = 'number of leaves for inferred binary tree. total number of nodes will be 2*n-1')
 	parser.add_argument('-c', '--c_max', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_COPY_NUM), help = 'maximum allowed copy number at any node in the tree')
-	parser.add_argument('-l', '--lambda1', required = True, type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'regularization term to weight total tree cost against unmixing error in objective function. setting as 0.0 will put no tree cost constraint. setting as 1.0 will equally consider tree cost and unmixing error.')
-	parser.add_argument('-a', '--lambda2', required = True, type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'regularization term to weight error in inferred ratio between copy number of a breakpoint and the copy number of the segment originally containing the position of breakpoint')
+	parser.add_argument('-l', '--lambda1', type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'regularization term to weight total tree cost against unmixing error in objective function. setting as 0.0 will put no tree cost constraint. setting as 1.0 will equally consider tree cost and unmixing error.')
+	parser.add_argument('-a', '--lambda2', type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'regularization term to weight error in inferred ratio between copy number of a breakpoint and the copy number of the segment originally containing the position of breakpoint')
 	parser.add_argument('-t', '--cord_desc_iters', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_CORD_DESC_ITERS), help = 'maximum number of cordinate descent iterations for each initialization of U')
 	parser.add_argument('-r', '--restart_iters', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_RESTART_ITERS), help = 'number of random initializations for picking usage matrix U')
 	parser.add_argument('-p', '--processors', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, NUM_CORES), help = 'number of processors to use')
