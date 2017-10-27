@@ -54,7 +54,7 @@ def main(argv):
 		in_dir = args['input_directory'] + subdir_name
 		out_dir = args['output_directory'] + subdir_name
 		pt.printnow('\nrunning ' + subdir_name)
-		# run_experiment(in_dir, out_dir, n, c, l, a, t, r, p)
+		run_experiment(in_dir, out_dir, n, c, l, a, t, r, p)
 		score_Cb, score_Cs, score_U, dist_T = vd.get_scores(out_dir, in_dir)
 		pt.printnow(str(score_Cb))
 		pt.printnow(str(score_Cs))
@@ -113,14 +113,6 @@ def execute(cmd):
 	if return_code:
 		raise subprocess.CalledProcessError(return_code, cmd)
 
-# def run_build_phylogeny(in_file, out_file):
-# 	cmd = ' '.join(['python', BULD_PHYLOGENY_RUN_FILE, in_file, '>', out_file])
-# 	try:
-# 		subprocess.check_output(cmd, shell = True, stderr = subprocess.STDOUT) # run build_phylogeny command
-# 	except subprocess.CalledProcessError as e:
-# 		pt.eprint('\nAn error in ' + BULD_PHYLOGENY_RUN_FILE + ' occured:\n') # error if error occured while running THetA
-# 		pt.eprint(e.output)
-# 		exit(e.returncode)
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #   C O M M A N D   L I N E   A R G U M E N T   F U N C T I O N S   #

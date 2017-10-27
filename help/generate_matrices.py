@@ -37,7 +37,6 @@ def get_mats(in_dir):
 		input_vcf_file = in_dir + '/' + sample
 		reader = vcf.Reader(open(input_vcf_file, 'r'))
 		BP_sample_dict[sample], CN_sample_dict[sample], CN_sample_rec_dict[sample], mateIDs, toTuple = get_sample_dict(reader)
-		
 		# prepend sample index to each breakpoint ID
 		for k, v in mateIDs.iteritems():
 			bp_id_to_mate_id[str(i+1) + k] = str(i+1) + v # add all entries from mateIDs (dict) to bp_id_to_mate_id (dict)
@@ -77,24 +76,25 @@ def make_matrices(m, l, r, sampleList, BP_sample_dict, BP_idx_dict, CN_sample_re
 		sample = sampleList[sample_idx]
 		for chrom in BP_sample_dict[sample]:
 			for pos in BP_sample_dict[sample][chrom]:
-				temp_bp_info_dict = BP_sample_dict[sample][chrom][pos] # dictionary
-				# cn, direction, bdp, dp = temp_bp_info_dict['cn'], temp_bp_info_dict['dir'], temp_bp_info_dict['bdp'], temp_bp_info_dict['dp']
-				cn, direction, = temp_bp_info_dict['cn'], temp_bp_info_dict['dir']
-				bp_idx = BP_idx_dict[(chrom, pos, direction)]
-				F[sample_idx][bp_idx] = cn
-				# A[sample_idx][bp_idx] = bdp
-				# H[sample_idx][bp_idx] = dp
+				for bp_id in BP_sample_dict[sample][chrom][pos]:
+					temp_bp_info_dict = BP_sample_dict[sample][chrom][pos][bp_id] # dictionary
+					# cn, direction, bdp, dp = temp_bp_info_dict['cn'], temp_bp_info_dict['dir'], temp_bp_info_dict['bdp'], temp_bp_info_dict['dp']
+					cn, direction, = temp_bp_info_dict['cn'], temp_bp_info_dict['dir']
+					bp_idx = BP_idx_dict[(chrom, pos, direction)]
+					F[sample_idx][bp_idx] = cn
+					# A[sample_idx][bp_idx] = bdp
+					# H[sample_idx][bp_idx] = dp
 
-				if direction == False and (chrom, pos) in CN_endPos_dict:
-					cn_idx = CN_endPos_dict[(chrom, pos)]
-					Q[bp_idx][cn_idx] = 1
-				elif direction == True and (chrom, pos) in CN_startPos_dict:
-					cn_idx = CN_startPos_dict[(chrom, pos)]
-					Q[bp_idx][cn_idx] = 1
-				else: # search through all posible segments where bp could lie
-					cn_idx = _get_seg_idx(seg_dic[chrom], pos)
-					if cn_idx != None:
+					if direction == False and (chrom, pos) in CN_endPos_dict:
+						cn_idx = CN_endPos_dict[(chrom, pos)]
 						Q[bp_idx][cn_idx] = 1
+					elif direction == True and (chrom, pos) in CN_startPos_dict:
+						cn_idx = CN_startPos_dict[(chrom, pos)]
+						Q[bp_idx][cn_idx] = 1
+					else: # search through all posible segments where bp could lie
+						cn_idx = _get_seg_idx(seg_dic[chrom], pos)
+						if cn_idx != None:
+							Q[bp_idx][cn_idx] = 1
 
 		for chrom in CN_sample_rec_dict[sample]:
 			for (s,e) in CN_sample_rec_dict[sample][chrom]:
@@ -148,8 +148,9 @@ def get_BP_idx_dict(BP_sample_dict):
 			if chrom not in chrom_pos_dir_dict:
 				chrom_pos_dir_dict[chrom] = set()
 			for pos in BP_sample_dict[sample][chrom]:
-				direction = BP_sample_dict[sample][chrom][pos]['dir']
-				chrom_pos_dir_dict[chrom].add((pos, direction))
+				for bp_id in BP_sample_dict[sample][chrom][pos]:
+					direction = BP_sample_dict[sample][chrom][pos][bp_id]['dir']
+					chrom_pos_dir_dict[chrom].add((pos, direction))
 
 	chrom_pos_dict = dict() # key: chrom, val: sorted pos list (ascending)
 	for chrom in chrom_pos_dir_dict:
@@ -170,10 +171,18 @@ def get_BP_idx_dict(BP_sample_dict):
 	sorted_chrom = sorted(BP_patient_dict.keys())
 	for chrom in sorted_chrom:
 		for (pos, direction) in BP_patient_dict[chrom]:
+			if (chrom, pos, direction) in BP_idx_dict:
+				continue
 			BP_idx_dict[(chrom, pos, direction)] = idx
 			idx += 1
 	l = idx
 	return BP_idx_dict, l
+
+def _inv_dic(dic):
+	inv_dic = {}
+	for k, v in dic.iteritems():
+		inv_dic[v] = k
+	return inv_dic
 
 
 # return three dictionaries: BP_sample_dict, CN_sample_dict, and CN_sample_rec_dict
@@ -193,20 +202,25 @@ def get_sample_dict(reader):
 	BP_sample_dict, CN_sample_dict, CN_sample_rec_dict = dict(), dict(), dict()
 	bp_id_to_mate_id = {} # key is id (str). val is mate id (str)
 	bp_id_to_tuple = {}   # key is (chrm_num, pos, direction). key is id (str)
+	bp_id_to_mate_dir = {}
 	for rec in reader:
 		if is_sv_record(rec) == True:
 			if rec.CHROM not in BP_sample_dict:
 				BP_sample_dict[rec.CHROM] = dict()
 			if rec.POS not in BP_sample_dict[rec.CHROM]:
 				BP_sample_dict[rec.CHROM][rec.POS] = dict()
-			BP_sample_dict[rec.CHROM][rec.POS]['id'] = rec.ID
-			BP_sample_dict[rec.CHROM][rec.POS]['cn'] = rec.samples[0].data.CNADJ
-			BP_sample_dict[rec.CHROM][rec.POS]['mate_dir'] = rec.ALT[0].remoteOrientation
-			# BP_sample_dict[rec.CHROM][rec.POS]['mate_id'] = rec.INFO['MATEID']
-			BP_sample_dict[rec.CHROM][rec.POS]['mate_pos'] = rec.ALT[0].pos
-			BP_sample_dict[rec.CHROM][rec.POS]['mate_chr'] = rec.ALT[0].chr
+			bp_id = rec.ID
+			if bp_id not in BP_sample_dict[rec.CHROM][rec.POS]: # had to add unique identifier since seg len of 1 exists
+				BP_sample_dict[rec.CHROM][rec.POS][bp_id] = {}
+			BP_sample_dict[rec.CHROM][rec.POS][bp_id]['id'] = rec.ID
+			BP_sample_dict[rec.CHROM][rec.POS][bp_id]['cn'] = rec.samples[0].data.CNADJ
+			BP_sample_dict[rec.CHROM][rec.POS][bp_id]['mate_dir'] = rec.ALT[0].remoteOrientation
+			# BP_sample_dict[rec.CHROM][rec.POS][bp_id]['mate_id'] = rec.INFO['MATEID']
+			BP_sample_dict[rec.CHROM][rec.POS][bp_id]['mate_pos'] = rec.ALT[0].pos
+			BP_sample_dict[rec.CHROM][rec.POS][bp_id]['mate_chr'] = rec.ALT[0].chr
 
 			bp_id_to_mate_id[rec.ID] = rec.INFO['MATEID'][0]
+			bp_id_to_mate_dir[rec.ID] = rec.ALT[0].remoteOrientation
 			
 			# BP_sample_dict[rec.CHROM][rec.POS]['bdp'] = rec.samples[0].data.BDP
 			# BP_sample_dict[rec.CHROM][rec.POS]['dp'] = rec.samples[0].data.DP
@@ -220,12 +234,15 @@ def get_sample_dict(reader):
 
 	for chrom in BP_sample_dict:
 		for pos in BP_sample_dict[chrom]:
-			mate_chr = BP_sample_dict[chrom][pos]['mate_chr']
-			mate_pos = BP_sample_dict[chrom][pos]['mate_pos']
-			BP_sample_dict[chrom][pos]['dir'] = BP_sample_dict[mate_chr][mate_pos]['mate_dir']
+			for bp_id in BP_sample_dict[chrom][pos]:
+				mate_chr = BP_sample_dict[chrom][pos][bp_id]['mate_chr']
+				mate_pos = BP_sample_dict[chrom][pos][bp_id]['mate_pos']
 
-			bp_id = BP_sample_dict[chrom][pos]['id']
-			bp_id_to_tuple[bp_id] = (chrom, pos, BP_sample_dict[chrom][pos]['dir'])
+				mate_id = bp_id_to_mate_id[bp_id]
+				my_dir = bp_id_to_mate_dir[mate_id]
+				BP_sample_dict[chrom][pos][bp_id]['dir'] = my_dir
+
+				bp_id_to_tuple[bp_id] = (chrom, pos, my_dir)
 
 	return BP_sample_dict, CN_sample_dict, CN_sample_rec_dict, bp_id_to_mate_id, bp_id_to_tuple
 
@@ -259,23 +276,32 @@ def get_CN_indices_dict(CN_sample_dict):
 		tempS = posList[0]
 		idx = 0
 		while idx < len(posList) - 1:
-			if 's' in pos_dir_dict[posList[idx + 1]] and 'e' not in pos_dir_dict[posList[idx + 1]]:
-				tempE = posList[idx + 1] - 1
+			if 'e' in pos_dir_dict[posList[idx]]:
+				tempE = posList[idx]
 				CN_patient_dict[chrom].append((tempS, tempE))
-				tempS = posList[idx + 1]
+				if 's' in  pos_dir_dict[posList[idx+1]]:
+					tempS = posList[idx + 1]
+				else:
+					tempS = posList[idx] + 1
 				idx += 1
-			elif 'e' in pos_dir_dict[posList[idx + 1]] and 's' not in pos_dir_dict[posList[idx + 1]]:
-				tempE = tempE = posList[idx + 1]
-				CN_patient_dict[chrom].append((tempS, tempE))
-				if idx + 1 < len(posList) - 1:
-					tempS = posList[idx + 2]
-				idx += 2
-			elif 's' in pos_dir_dict[posList[idx + 1]] and 'e' in pos_dir_dict[posList[idx + 1]]:
-				tempE = posList[idx + 1] - 1
-				CN_patient_dict[chrom].append((tempS, tempE))
-				CN_patient_dict[chrom].append((posList[idx + 1], posList[idx + 1]))
-				tempS = posList[idx + 1] + 1
-				idx += 1
+			else:
+				if 's' in pos_dir_dict[posList[idx + 1]] and 'e' not in pos_dir_dict[posList[idx + 1]]:
+					tempE = posList[idx + 1] - 1
+					CN_patient_dict[chrom].append((tempS, tempE))
+					tempS = posList[idx + 1]
+					idx += 1
+				elif 'e' in pos_dir_dict[posList[idx + 1]] and 's' not in pos_dir_dict[posList[idx + 1]]:
+					tempE = tempE = posList[idx + 1]
+					CN_patient_dict[chrom].append((tempS, tempE))
+					if idx + 1 < len(posList) - 1:
+						tempS = posList[idx + 2]
+					idx += 2
+				elif 's' in pos_dir_dict[posList[idx + 1]] and 'e' in pos_dir_dict[posList[idx + 1]]:
+					tempE = posList[idx + 1] - 1
+					CN_patient_dict[chrom].append((tempS, tempE))
+					CN_patient_dict[chrom].append((posList[idx + 1], posList[idx + 1]))
+					tempS = posList[idx + 1] + 1
+					idx += 1
 
 	CN_startPos_dict = dict()
 	CN_endPos_dict = dict()
@@ -309,6 +335,7 @@ def make_G(bp_tuple_to_idx, bp_id_to_mate_id, bp_id_to_tuple):
 		cur_tuple = bp_idx_to_tuple[i]
 		mate_tup = bp_tuple_to_mate_tuple[cur_tuple]
 		j = bp_tuple_to_idx[mate_tup]
+		print j
 		G[i, j] = 1
 
 	return G
