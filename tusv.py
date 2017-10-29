@@ -118,10 +118,6 @@ def write_to_files(d, U, C, E, R, W, F, obj_val):
 	open(fnames[2], 'w').write(dot.source) # write tree T in dot format
 	dot.render(d + 'T')                    # display tree T in .png
 
-	# file = open(fname[4], "w") # write objective value to separate file
-	# file.write(obj_val)
-	# file.close()
-
 
 #  input: E (np.array of int) [2n-1, 2n-1] 0 if no edge, 1 if edge between nodes i and j
 #         R (np.array of int) [2n-1, 2n-1] cost of each edge in the tree

@@ -23,8 +23,11 @@ def main(argv):
 	G = gen_G(l)
 	A = np.random.binomial(100, 0.25, [m, l])
 	H = 100 * np.ones([m, l])
-	lamb1 = 1
-	lamb2 = 0.01
+	lamb1 = 0.01
+	lamb1 = 0.0
+	lamb1 = 1.0
+	lamb2 = 1.0
+	lamb2 = 0.25
 
 	test_get_U(F, n, l, r)
 	test_get_C(F, Q, G, A, H, n, c_max, lamb1, lamb2)
@@ -74,9 +77,9 @@ def gen_U(m, n):
 #   T E S T S   #
 # # # # # # # # #
 
-def test_get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters = 5):
+def test_get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters = 5, timelimit = 10):
 	printnow('\ntest_get_UCE starting\n')
-	U, C, E, obj_val, err_msg = sv.get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters)
+	U, C, E, R, W, obj_val, err_msg = sv.get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters, timelimit)
 
 	if err_msg != None:
 		printnow(err_msg + '\n')
@@ -84,6 +87,8 @@ def test_get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters = 5):
 		printnow(str(U) + '\n')
 		printnow(str(C) + '\n')
 		printnow(str(E) + '\n')
+		printnow(str(R) + '\n')
+		printnow(str(W) + '\n')
 		printnow('objective value is ' + str(obj_val) + '\n')
 
 	printnow('\ntest_get_UCE complete\n')
@@ -99,14 +104,16 @@ def test_get_U(F, n, l, r):
 def test_get_C(F, Q, G, A, H, n, c_max, lamb1, lamb2):
 	m = len(F)
 	U = gen_U(m, n)
-	printnow('\ntest_get_C starting\n')
-	obj_val, C, E, R, err_msg = sv.get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2)
+	printnow('\ntest_get_C starting\n') # time limit of 10 seconds
+	obj_val, C, E, R, W, err_msg = sv.get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, 10)
 
 	if err_msg != None:
 		printnow(err_msg + '\n')
 	else:
 		printnow(str(C) + '\n')
 		printnow(str(E) + '\n')
+		printnow(str(R) + '\n')
+		printnow(str(W) + '\n')
 		printnow('objective value is ' + str(obj_val) + '\n')
 
 	printnow('test_get_C complete\n')

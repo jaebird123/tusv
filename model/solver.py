@@ -16,7 +16,7 @@ import argparse # for command line arguments
 import math     # it's math. we're gonna need it
 import cvxpy as cvx
 import numpy as np
-import gurobipy
+import gurobipy as gp
 
 
 # # # # # # # # # # # # #
@@ -41,6 +41,7 @@ MAX_SOLVER_ITERS = 5000
 #         lamb1 (float) regularization term to weight total tree cost against unmixing error
 #         lamb2 (float) regularization term to weight breakpoint frequency error
 #         max_iters (int) maximum number of iterations to predict U then C if convergence not reached
+#         time_limit (int) maximum number of seconds the solver will run
 # output: U (np.array of float) [m, 2n-1] 0 <= u_p,k <= 1. percent of sample p made by clone k
 #         C (np.array of int) [2n-1, l+r] int copy number c_k,s of mutation s in clone k
 #         E (np.array of int) [2n-1, 2n-1] e_i,j == 1 iff edge (i,j) is in tree. 0 otherwise
@@ -49,7 +50,7 @@ MAX_SOLVER_ITERS = 5000
 #         obj_val (float) objective value of final solution
 #         err_msg (None or str) None if no error occurs. str with error message if one does
 #  notes: l (int) is number of structural variants. r (int) is number of copy number regions
-def get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters):
+def get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters, time_limit):
 	np.random.seed() # sets seed for running on multiple processors
 	m = len(F)
 
@@ -60,7 +61,7 @@ def get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters):
 		else:
 			U = get_U(F, C, n)
 
-		obj_val, C, E, R, W, err_msg = get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2)
+		obj_val, C, E, R, W, err_msg = get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, time_limit)
 
 		# handle errors
 		if err_msg != None:
@@ -116,6 +117,7 @@ def get_U(F, C, n):
 #         c_max (int) maximum allowed copy number for any element in output C
 #         lamb1 (float) regularization term to weight total tree cost against unmixing error
 #         lamb2 (float) regularization term to weight breakpoint frequency error
+#         time_limit (int) maximum number of seconds the solver will run
 # output: obj_val (float) objective value of solution
 #         C (np.array of int) [2n-1, l+r] int copy number c_k,s of mutation s in clone k
 #         E (np.array of int) [2n-1, 2n-1] e_i,j == 1 iff edge (i,j) is in tree. 0 otherwise
@@ -123,50 +125,174 @@ def get_U(F, C, n):
 #         W_all (np.array of int) [2n-1, 2n-1] number of breakpoints appearing along each edge in tree
 #         err_msg (None or str) None if no error occurs. str with error message if one does
 #  notes: l (int) is number of structural variants. r (int) is number of copy number regions
-def get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2):
+def get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, time_limit):
 	l, r = Q.shape
 	m, _ = U.shape
-	C = cvx.Int(2 * n - 1, l + r)
+	N = 2*n - 1
 
-	E = cvx.Int(2 * n - 1, 2 * n - 1) # binary edge indicators
-	R = cvx.Int(2 * n - 1, 2 * n - 1) # rho. cost across each edge
-	W = _get_bp_appearance_var(n, l)  # w_bin (dict). binary breakpoint appearance indicator
-	C_bin = cvx.Int(2*n-1, l+r)       # binary representation of C. C_bin = (C == 1)
-	Gam = cvx.Int(2*n-1, l)           # gamma. copy number of segment containing breakpoint
+	mod = gp.Model('tusv')
+
+	C = _get_gp_arr_int_var(mod, N, l + r, c_max)
+	E = _get_gp_arr_bin_var(mod, N, N)
+	R = _get_gp_arr_int_var(mod, N, N, c_max * r) # rho. cost across each edge
+	S = _get_gp_arr_cnt_var(mod, m, l, c_max)     # ess. bpf penalty for each bp in each sample
+	W = _get_gp_3D_arr_bin_var(mod, N, N, l)
+	C_bin = _get_bin_rep(mod, C, c_max)
+	Gam = _get_gp_arr_int_var(mod, N, l, c_max)
 
 	F_seg = F[:, l:].dot(np.transpose(Q)) # [m, l] mixed copy number of segment containing breakpoint
 	Pi = np.divide(F[:, :l], F_seg)       # [m, l] expected bpf (ratio of bp copy num to segment copy num)
 
-	# add constraints
-	cst = []
-	cst += _get_copy_num_constraints(C, c_max, l, r, n)
-	cst += _get_tree_constraints(E, n)
-	cst += _get_cost_constraints(R, C, E, n, l, r, c_max)
-	cst += _bin(C, C_bin, 2*n-1, l+r, c_max)
-	cst += _get_bp_appearance_constraints(C_bin, W, E, G, n, l)
-	cst += _get_sum_condition_constraints(C_bin, W, U, m, n, l)
-	cst += _get_segment_copy_num_constraints(Gam, C, Q, W, m, n, l, r)
-	# cst += _get_bp_frequency_constraints(C, U, Q, A, H, m, n, l, r, alpha)
+	_set_copy_num_constraints(mod, C, n, l, r)
+	_set_tree_constraints(mod, E, n)
+	_set_cost_constraints(mod, R, C, E, n, l, r, c_max)
+	_set_bp_appearance_constraints(mod, C_bin, W, E, G, n, l)
+	_set_sum_condition_constraints(mod, C_bin, W, U, m, n, l)
+	_set_segment_copy_num_constraints(mod, Gam, C, Q, W, m, n, l, r)
+	_set_bpf_penalty(mod, S, Pi, U, C, Gam)
 
-	S = cvx.abs(cvx.mul_elemwise(Pi, cvx.sum_entries(U * Gam)) - cvx.sum_entries(U * C[:, :l]))
-	obj = cvx.Minimize(cvx.sum_entries(cvx.abs(F - U * C)) + lamb1 * cvx.sum_entries(R) + lamb2 * cvx.sum_entries(S))
-	prb = cvx.Problem(obj, cst)
+	mod.setObjective(_get_objective(mod, F, U, C, R, S, lamb1, lamb2), gp.GRB.MINIMIZE)
 
-	try:
-		prb.solve(solver = cvx.GUROBI, max_iters = MAX_SOLVER_ITERS)
-	except:
-		return None, None, None, None, None, "ERROR: solving with " + str(cvx.GUROBI) + " did not work"
+	mod.params.MIPFocus = 1
+	mod.params.TimeLimit = time_limit
 
-	if prb.status == cvx.OPTIMAL:
-		C = np.array(C.value.round())
-		R = np.array(R.value.round())
-		E = np.array(E.value.round())
-		W_all = np.zeros((2*n-1, 2*n-1))
-		for _, w in W.iteritems():
-			W_all = W_all + w.value.round()
-		return prb.value, C, E, R, W_all, None
+	mod.optimize()
 
-	return prb.value, None, None, None, None, "error when solving: " + str(prb.status)
+	C = _as_solved(C)
+	E = _as_solved(E)
+	R = _as_solved(R)
+	W_all = np.zeros((N, N))
+	for i in xrange(0, N):
+		for j in xrange(0, N):
+			W_all[i, j] = sum([ W[i, j, b].X for b in xrange(0, l) ])
+
+	return mod.objVal, C, E, R, W_all, None
+
+
+# # # # # # # # # # # # # # # # # # # # # #
+#   G U R O B I   C O N S T R A I N T S   #
+# # # # # # # # # # # # # # # # # # # # # #
+
+def _set_copy_num_constraints(mod, C, n, l, r):
+	for b in xrange(0, l):
+		mod.addConstr(C[2*n-2, b], gp.GRB.EQUAL, 0) # bp has copy number 0 at root
+	for s in xrange(l, l+r):
+		mod.addConstr(C[2*n-2, s], gp.GRB.EQUAL, 2) # seg has copy number 2 at root
+
+def _set_tree_constraints(mod, E, n):
+	N = 2*n-1
+	for i in xrange(0, n):
+		for j in xrange(0, N):
+			mod.addConstr(E[i, j] == 0) # no outgoing edges from leaves
+	for i in xrange(n, N):
+		mod.addConstr(E[i, N-1] == 0) # no edges from descendents to root
+	for i in xrange(n, N-1):
+		mod.addConstr(E[i, i] == 0) # no self edges. leaf and root already constrained
+	for i in xrange(n, N):
+		mod.addConstr(gp.quicksum(E[i, :]) == 2) # internal nodes have 2 outgoing edges
+	for j in xrange(0, N-1):
+		mod.addConstr(gp.quicksum(E[n:, j]) == 1) # non root nodes have 1 incoming edge
+	for i in xrange(n, N):
+		for j in xrange(n, N):
+			mod.addConstr(E[i, j] + E[j, i] <= 1) # no 2 node cycles
+
+def _set_cost_constraints(mod, R, C, E, n, l, r, c_max):
+	N = 2*n-1
+	X = _get_gp_3D_arr_int_var(mod, N, N, r, c_max)
+	for i in xrange(0, N):
+		for j in xrange(0, N):                           # no cost if no edge exists
+			for s in xrange(0, r):                         # cost is difference between copy number
+				mod.addConstr(X[i, j, s] <= c_max * E[i, j])
+				mod.addConstr(X[i, j, s] >= _get_abs(mod, C[i, s+l] - C[j, s+l]) - (c_max+1) * (1-E[i, j]))
+			mod.addConstr(R[i, j] == gp.quicksum(X[i, j, :]))
+
+def _set_bp_appearance_constraints(mod, C_bin, W, E, G, n, l):
+	N = 2*n-1
+	X = _get_gp_3D_arr_int_var(mod, N, N, l, 3)
+	for i in xrange(0, N):
+		for j in xrange(0, N):
+			for b in xrange(0, l): # only 0 if copy num goes from 0 to 1 across edge (i,j)
+				mod.addConstr(X[i, j, b] == 2 + C_bin[i, b] - C_bin[j, b] - E[i, j])
+	X_bin = _get_3D_bin_rep(mod, X, 3)
+	for i in xrange(0, N):
+		for j in xrange(0, N):
+			for b in xrange(0, l): # set W as bp appearance
+				mod.addConstr(W[i, j, b] == 1 - X_bin[i, j, b])
+			for s in xrange(0, l):
+				for t in xrange(0, l): # breakpoint pairs appear on same edge
+					mod.addConstr(_get_abs(mod, W[i, j, s] - W[i, j, t]) <= 1 - G[s, t])
+	for b in xrange(0, l):     # breakpoints only appear once in the tree
+		tmp = [ W[i, j, b] for i in xrange(0, N) for j in xrange(0, n) ]
+		mod.addConstr(gp.quicksum(tmp) == 1)
+
+def _set_sum_condition_constraints(mod, C_bin, W, U, m, n, l):
+	N = 2*n-1
+	W_node = _get_gp_arr_bin_var(mod, N, l)
+	for j in xrange(0, N):
+		for b in xrange(0, l): # 1 iff breakpoint appears at node j
+			mod.addConstr(W_node[j, b] == gp.quicksum(W[:, j, b]))
+	Phi = _get_gp_arr_cnt_var(mod, m, l)
+	for p in xrange(0, m):
+		for b in xrange(0, l): # percent of cells in sample p with breakpoint b
+			mod.addConstr(Phi[p, b] == gp.quicksum([ U[p, k] * C_bin[k, b] for k in xrange(0, N) ]))
+	Y, Y_bin = {}, {}
+	for i in xrange(0, N):
+		for j in xrange(0, N):
+			Y[(i, j)] = _get_gp_arr_int_var(mod, l, l, 2)
+			Y_bin[(i, j)] = _get_bin_rep(mod, Y[(i, j)], 2)
+			for s in xrange(0, l):
+				for t in xrange(0, l): # 0 iff breakpoint s appears at node i then t immediately appears at j
+					mod.addConstr(Y[(i, j)][s, t] == 2 - W_node[i, s] - W[i, j, t])
+	D = _get_gp_arr_bin_var(mod, l, l)
+	for s in xrange(0, l):
+		for t in xrange(0, l): # D == 1 iff breakpoint s appears in parent node of where breakpoint t appears
+			mod.addConstr(D[s, t] == gp.quicksum([ (1 - Y_bin[(i, j)][s, t]) for i in xrange(0, N) for j in xrange(0, N) ]))
+	for p in xrange(0, m):
+		for s in xrange(0, l):
+			for t in xrange(0, t): # cell fraction of breakpoint in parent must be > cell frac in child
+				mod.addConstr(Phi[p, s] >= Phi[p, t] - 1 + D[s, t])
+
+def _set_segment_copy_num_constraints(mod, Gam, C, Q, W, m, n, l, r):
+	N = 2*n-1
+	for k in xrange(0, N):
+		for b in xrange(0, l): # define copy num of segment containing breakpoint
+			mod.addConstr(Gam[k, b] == gp.quicksum([ Q[b, s] * C[k, l+s] for s in xrange(0, r) ]))
+			mod.addConstr(C[k, b] <= Gam[k, b]) # cp num breakpoint cant exceed cp num of seg containing bp
+	for j in xrange(0, N):
+		for b in xrange(0, l): # copy number of segment containing bp must be at least 1 if bp appears at node j
+			mod.addConstr(Gam[j, b] >= gp.quicksum([ W[i, j, b] for i in xrange(0, N) ]))
+
+def _set_bpf_penalty(mod, S, Pi, U, C, Gam):
+	m, l = S.shape
+	N, _ = Gam.shape
+	for p in xrange(0, m):
+		for b in xrange(0, l):
+			sg_cpnum_est = gp.quicksum([ U[p, k] * Gam[k, b] for k in xrange(0, N) ])
+			bp_cpnum_est = gp.quicksum([ U[p, k] * C[k, b] for k in xrange(0, N) ])
+			mod.addConstr(S[p, b] == _get_abs(mod, Pi[p, b] * sg_cpnum_est - bp_cpnum_est))
+
+#
+#   OBJECTIVE
+#
+
+def _get_objective(mod, F, U, C, R, S, lamb1, lamb2): # returns expression for objective
+	m, L = F.shape
+	N, _ = C.shape
+	_, l = S.shape
+	sums = []
+	for p in xrange(0, m):
+		for s in xrange(0, L):
+			f_hat = gp.quicksum([ U[p, k] * C[k, s] for k in xrange(0, N) ])
+			sums.append(_get_abs(mod, F[p, s] - f_hat))
+	for i in xrange(0, N):
+		for j in xrange(0, N):
+			sums.append(lamb1 * R[i, j])
+	for p in xrange(0, m):
+		for b in xrange(0, l):
+			sums.append(lamb2 * S[p, b])
+	mod.update()
+	return gp.quicksum(sums)
+
 
 # # # # # # # # # # # # # # # # # # # # # # # #
 #   C O N S T R A I N T   F U N C T I O N S   #
@@ -380,6 +506,106 @@ def _get_bp_frequency_constraints(C, U, Q, A, H, m, n, l, r, alpha):
 	cst.append( cvx.mul_elemwise(Pi + alpha*Std_pi, F_bp) >= F_sg ) #   to bpf Pi
 
 	return cst
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # #
+#   G U R O B I   V A R I A B L E   M A K E R S   #
+# # # # # # # # # # # # # # # # # # # # # # # # # #
+
+# def _get_gp_1D_arr_bin_var(mod, n):
+# 	X = np.empty((n), dtype = gp.Var)
+# 	for i in xrange(0, n):
+# 		X[i] = mod.addVar(vtype = gp.GRB.BINARY)
+# 	mod.update()
+# 	return X
+
+def _get_gp_arr_int_var(mod, m, n, vmax = None):
+	X = np.empty((m, n), dtype = gp.Var)
+	for i in xrange(0, m):
+		for j in xrange(0, n):
+			if vmax == None:
+				X[i, j] = mod.addVar(lb = 0, vtype = gp.GRB.INTEGER)
+			else:
+				X[i, j] = mod.addVar(lb = 0, ub = vmax, vtype = gp.GRB.INTEGER)
+	mod.update()
+	return X
+
+def _get_gp_arr_bin_var(mod, m, n):
+	X = np.empty((m, n), dtype = gp.Var)
+	for i in xrange(0, m):
+		for j in xrange(0, n):
+			X[i, j] = mod.addVar(vtype = gp.GRB.BINARY)
+	mod.update()
+	return X
+
+def _get_gp_arr_cnt_var(mod, m, n, vmax = None):
+	X = np.empty((m, n), dtype = gp.Var)
+	for i in xrange(0, m):
+		for j in xrange(0, n):
+			if vmax == None:
+				X[i, j] = mod.addVar(lb = 0, vtype = gp.GRB.CONTINUOUS)
+			else:
+				X[i, j] = mod.addVar(lb = 0, ub = vmax, vtype = gp.GRB.CONTINUOUS)
+	mod.update()
+	return X
+
+def _get_gp_3D_arr_int_var(mod, l, m, n, vmax):
+	X = np.empty((l, m, n), dtype = gp.Var)
+	for i in xrange(0, l):
+		for j in xrange(0, m):
+			for k in xrange(0, n):
+				if vmax == None:
+					X[i, j, k] = mod.addVar(lb = 0, vtype = gp.GRB.INTEGER)
+				else:
+					X[i, j, k] = mod.addVar(lb = 0, ub = vmax, vtype = gp.GRB.INTEGER)
+	mod.update()
+	return X
+
+def _get_gp_3D_arr_bin_var(mod, l, m, n):
+	X = np.empty((l, m, n), dtype = gp.Var)
+	for i in xrange(0, l):
+		for j in xrange(0, m):
+			for k in xrange(0, n):
+				X[i, j, k] = mod.addVar(vtype = gp.GRB.BINARY)
+	mod.update()
+	return X
+
+def _get_abs(mod, x):
+	x_abs = mod.addVar(vtype = gp.GRB.INTEGER)
+	mod.addConstr(x_abs, gp.GRB.GREATER_EQUAL, x)
+	mod.addConstr(x_abs, gp.GRB.GREATER_EQUAL, -1 * x)
+	mod.update()
+	return x_abs
+
+def _get_bin_rep(mod, X, vmax):
+	m, n = X.shape
+	Y = _get_gp_arr_bin_var(mod, m, n)                # Y = 0 if X == 0. Y = 1 if X != 0
+	num_bits = int(math.floor(math.log(vmax, 2))) + 1 # maximum number of bits required
+	Z = _get_gp_3D_arr_bin_var(mod, m, n, num_bits)   # bit representation of X
+	for i in xrange(0, m):
+		for j in xrange(0, n):   # set Z as bit representation
+			mod.addConstr(gp.quicksum([ Z[i, j, b] * 2**b for b in xrange(0, num_bits) ]) == X[i, j])
+			for b in xrange(0, num_bits):          # Y must be 1 if any bits are 1
+				mod.addConstr(Z[i, j, b] <= Y[i, j]) # Y must be 0 if all bits are 0
+			mod.addConstr(Y[i, j] <= gp.quicksum([ Z[i, j, b] for b in xrange(0, num_bits) ]))
+	return Y
+
+def _get_3D_bin_rep(mod, X, vmax):
+	l, m, n = X.shape
+	Y = _get_gp_3D_arr_bin_var(mod, l, m, n)          # Y = 0 if X == 0. Y = 1 if X != 0
+	for i in xrange(0, l):
+		Y[i, :, :] = _get_bin_rep(mod, X[i, :, :], vmax)
+	return Y
+
+
+# returns numpy array of solved values
+def _as_solved(X):
+	m, n = X.shape
+	Y = np.empty((m, n))
+	for i in xrange(0, m):
+		for j in xrange(0, n):
+			Y[i, j] = X[i, j].X
+	return Y
 
 
 # # # # # # # # # # # # # # # # # # # #
