@@ -57,13 +57,13 @@ def main(argv):
 		# args['lambda2'] = float(l) / float(l + r)
 
 	n, c_max, lamb1, lamb2 = args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2']
-	num_restarts, num_cd_iters, num_processors = args['restart_iters'], args['cord_desc_iters'], args['processors']
+	num_restarts, num_cd_iters, num_processors, time_limit = args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit']
 
 	check_valid_input(Q, G, A, H)
 
 	p = mp.Pool(processes = num_processors)
 
-	arg_set = (F, Q, G, A, H, n, c_max, lamb1, lamb2, num_cd_iters)
+	arg_set = (F, Q, G, A, H, n, c_max, lamb1, lamb2, num_cd_iters, time_limit)
 	arg_sets_to_use = [ arg_set for _ in xrange(0, num_restarts) ]
 
 	Us, Cs, Es, obj_vals = [], [], [], []
@@ -213,6 +213,7 @@ def get_args(argv):
 	parser.add_argument('-t', '--cord_desc_iters', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_CORD_DESC_ITERS), help = 'maximum number of cordinate descent iterations for each initialization of U')
 	parser.add_argument('-r', '--restart_iters', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_RESTART_ITERS), help = 'number of random initializations for picking usage matrix U')
 	parser.add_argument('-p', '--processors', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, NUM_CORES), help = 'number of processors to use')
+	parser.add_argument('-m', '--time_limit', type = int, help = 'maximum time (in seconds) allowed for a single iteration of the cordinate descent algorithm')
 	return vars(parser.parse_args(argv))
 
 # # # # # # # # # # # # # # # # # # # # # # # # #

@@ -50,7 +50,7 @@ MAX_SOLVER_ITERS = 5000
 #         obj_val (float) objective value of final solution
 #         err_msg (None or str) None if no error occurs. str with error message if one does
 #  notes: l (int) is number of structural variants. r (int) is number of copy number regions
-def get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters, time_limit):
+def get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters, time_limit = None):
 	np.random.seed() # sets seed for running on multiple processors
 	m = len(F)
 
@@ -125,7 +125,7 @@ def get_U(F, C, n):
 #         W_all (np.array of int) [2n-1, 2n-1] number of breakpoints appearing along each edge in tree
 #         err_msg (None or str) None if no error occurs. str with error message if one does
 #  notes: l (int) is number of structural variants. r (int) is number of copy number regions
-def get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, time_limit):
+def get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, time_limit = None):
 	l, r = Q.shape
 	m, _ = U.shape
 	N = 2*n - 1
@@ -154,7 +154,8 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, time_limit):
 	mod.setObjective(_get_objective(mod, F, U, C, R, S, lamb1, lamb2), gp.GRB.MINIMIZE)
 
 	mod.params.MIPFocus = 1
-	mod.params.TimeLimit = time_limit
+	if time_limit != None:
+		mod.params.TimeLimit = time_limit
 
 	mod.optimize()
 

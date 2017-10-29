@@ -47,14 +47,14 @@ def main(argv):
 	args = get_args(argv)
 	fm.cp_file_structure_to_out_dir(args['input_directory'], args['output_directory'])
 	subdir_names = fm.get_subdir_names(args['input_directory'])
-	n, c, l, a, t, r, p = args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['cord_desc_iters'], args['restart_iters'], args['processors']
+	n, c, l, a, t, r, p, m = args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['cord_desc_iters'], args['restart_iters'], args['processors'], args['time_limit']
 
 	CBs, CSs, Cs, Us, Ts, FUCs, objs = [], [], [], [], [], [], [] # scores for copy number of breakpoints, segments, usages and phylogeny
 	for subdir_name in subdir_names:
 		in_dir = args['input_directory'] + subdir_name
 		out_dir = args['output_directory'] + subdir_name
 		pt.printnow('\nrunning ' + subdir_name)
-		# run_experiment(in_dir, out_dir, n, c, l, a, t, r, p)
+		run_experiment(in_dir, out_dir, n, c, l, a, t, r, p, m)
 		score_Cb, score_Cs, score_C, score_U, dist_T, score_FUC, obj_val = vd.get_scores(out_dir, in_dir)
 		pt.printnow(' Cb: ' + str(score_Cb))
 		pt.printnow(' Cs: ' + str(score_Cs))
@@ -106,7 +106,7 @@ def report(in_dir, out_dir, CBs, CSs, Cs, Us, Ts, FUCs, obj_vals):
 	f.close()
 
 
-def run_experiment(indir, otdir, n, c, l, a, t, r, p):
+def run_experiment(indir, otdir, n, c, l, a, t, r, p, m):
 	old_path = os.getcwd()
 	os.chdir('..')
 	cmd_lst = ['python', 'tusv.py', '-i', indir, '-o', otdir, '-n', str(n), '-c', str(c), '-t', str(t), '-r', str(r), '-p', str(p)]
@@ -114,6 +114,8 @@ def run_experiment(indir, otdir, n, c, l, a, t, r, p):
 		cmd_lst += ['-l', str(l)]
 	if a != None:
 		cmd_lst += ['-a', str(a)]
+	if m != None:
+		cmd_lst += ['-m', str(m)]
 	cmd = ' '.join(cmd_lst)
 	for line in execute(cmd):
 		pt.printnow(line, newline = False)
@@ -144,6 +146,7 @@ def get_args(argv):
 	parser.add_argument('-t', '--cord_desc_iters', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_CORD_DESC_ITERS), help = 'maximum number of cordinate descent iterations for each initialization of U')
 	parser.add_argument('-r', '--restart_iters', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_RESTART_ITERS), help = 'number of random initializations for picking usage matrix U')
 	parser.add_argument('-p', '--processors', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, NUM_CORES), help = 'number of processors to use')
+	parser.add_argument('-m', '--time_limit', type = int, help = 'maximum time (in seconds) allowed for a single iteration of the cordinate descent algorithm')
 	return vars(parser.parse_args(argv))
 
 def is_valid_file(parser, arg):
