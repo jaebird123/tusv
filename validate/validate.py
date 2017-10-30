@@ -73,7 +73,7 @@ def get_scores(act_dir, exp_dir):
 	dist_T = Ta.robinson_foulds(Te)[0] # continue here with trying to permute nodes to match better
 
 	# calculate |F - U*C|
-	score_FUC = np.sum(np.abs(F - np.matmul(Ua[:, perm], Ca[perm, :])))
+	score_FUC = np.sum(np.abs(F - np.dot(Ua[:, perm], Ca[perm, :])))
 	
 	return score_Cb, score_Cs, score_C, score_U, dist_T, score_FUC, obj_val
 
