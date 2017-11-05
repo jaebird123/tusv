@@ -39,6 +39,7 @@ def main(argv):
 	
 	print score_Cb
 	print score_Cs
+	print score_C
 	print score_U
 	print dist_T
 	print score_FUC
@@ -136,7 +137,7 @@ def get_mNlr(C, U):
 #         U (np.array of float) [m, N] u_p,k is percent of clone k making up sample p
 #         T (ete3.coretype.tree.TreeNode) directed tree representing phylogeny
 def get_CUT(dirname):
-	C = np.genfromtxt(dirname + FNAMES[0], dtype = int)
+	C = np.genfromtxt(dirname + FNAMES[0], dtype = float)
 	U = np.genfromtxt(dirname + FNAMES[1], dtype = float)
 	T = get_T(open(dirname + FNAMES[2]))
 	return C, U, T
