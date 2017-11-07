@@ -14,7 +14,6 @@ import sys      # for command line arguments
 import os       # for manipulating files and folders
 import argparse # for command line arguments
 import math     # it's math. we're gonna need it
-import cvxpy as cvx
 import numpy as np
 import gurobipy as gp
 
@@ -81,20 +80,22 @@ def get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters, time_limit = None)
 #         n (int) number of leaves in phylogeny. 2n-1 is total number of nodes
 # output: U (np.array of float) [m, 2n-1] 0 <= u_p,k <= 1. percent of sample p made by clone k
 def get_U(F, C, n):
-	m = len(F)
-	U = cvx.Variable(m, 2*n-1)
+	m, L = F.shape
+	N = 2*n-1
+	mod = gp.Model('tusv')
+	U = _get_gp_arr_cnt_var(mod, m, N, 1.0)
+	for i in xrange(0, m):
+		mod.addConstr(gp.quicksum(U[i, :]) == 1.0)
+	sums = []
+	for p in xrange(0, m):
+		for s in xrange(0, L):
+			f_hat = gp.quicksum([ U[p, k] * C[k, s] for k in xrange(0, N) ])
+			sums.append(_get_abs(mod, F[p, s] - f_hat))
 	
-	cst = [0 <= U, U <= 1]
-	for i in xrange(m):
-		U_row = U[i, :]
-		cst.append(cvx.sum_entries(U_row) == 1)
+	mod.setObjective(gp.quicksum(sums), gp.GRB.MINIMIZE)
+	mod.optimize()
+	U = _as_solved(U)
 
-	obj = cvx.Minimize(cvx.sum_entries(cvx.abs(F - U * C)))
-	prb = cvx.Problem(obj, cst)
-	prb.solve(solver = cvx.GUROBI)
-
-	# remove any numbers extremely close to zero
-	U = np.array(U.value)
 	for i in xrange(m):
 		for j in xrange(2*n-1):
 			if U[i, j] <= U_MIN:
