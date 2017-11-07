@@ -12,6 +12,8 @@
 import sys      # for command line arguments
 import os       # for manipulating files and folders
 
+from os.path import isfile, join
+
 
 # # # # # # # # # # # # #
 #   F U N C T I O N S   #
@@ -86,6 +88,17 @@ def cp_file_structure_to_out_dir(in_dir, out_dir):
 def get_subdir_names(d):
 	for _, subdirs, _ in _walklevel(d):
 		return [ _directorize(s) for s in subdirs ]
+
+def get_fnames_in_dir(d):
+	return [f for f in os.listdir(d) if isfile(join(d, f))]
+
+def get_fnames_in_dir_with_ext(d, ext):
+	fnames = get_fnames_in_dir(d)
+	out = []
+	for fname in fnames:
+		if fname.endswith(ext):
+			out.append(fname)
+	return out
 
 #
 #   non-file maninging input functions
