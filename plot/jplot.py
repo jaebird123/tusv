@@ -42,10 +42,9 @@ def main(argv):
 					'size'   : 16}
 	pl.rc('font', **font)
 
-	plot_param_tune_lambda1()
+	# plot_param_tune_lambda1()
 	# plot_param_tune_lambda2()
-
-	# plot_sv_lens()
+	plot_m_diff()
 	
 
 def plot_param_tune_lambda1():
@@ -59,27 +58,11 @@ def plot_param_tune_lambda1():
 	pl.plot(lmb1, c_sg, '-^', label = '$C_{sg}$')
 	pl.plot(lmb1, c, '-o', label = '$C_{tot}$')
 
-	# pl.xlim([-1,7])
 	ax.set_xscale("log", nonposx='clip')
 
 	pl.legend(loc = 'upper right')
 	pl.xlabel('$\lambda_1$')
 	pl.ylabel('$|C_{tru}-C_{obs}|$')
-
-	pl.show()
-	exit()
-
-
-	# fig, ax = plt.subplots()
-
-	ax.semilogx(lmb1, c_bp, '-o')
-	ax.semilogx(lmb1, c_sg, '-o')
-	ax.semilogx(lmb1, c, '-o')
-
-	# leg = ax.legend(loc = 'upper center', shadow = True)
-	# fig.xlabel('$\lambda_1$')
-
-	plt.show()
 
 def plot_param_tune_lambda2():
 	lmb2 = [0.0, 0.01, 0.05, 0.25, 1.25, 6.25]
@@ -92,7 +75,6 @@ def plot_param_tune_lambda2():
 	pl.plot(lmb2, c_sg, '-^', label = '$C_{sg}$')
 	pl.plot(lmb2, c, '-o', label = '$C_{tot}$')
 
-	# pl.xlim([-1,7])
 	ax.set_xscale("log", nonposx='clip')
 
 	pl.legend(loc = 'upper right')
@@ -100,7 +82,30 @@ def plot_param_tune_lambda2():
 	pl.ylabel('$|C_{tru}-C_{obs}|$')
 
 	pl.show()
-	exit()
+
+def plot_m_diff():
+	m = [1, 5, 10]
+	#  m == 1, m == 5, m == 10
+	c_bps = [[4.0, 0.0, 8.0], [10.0, 14, 0, 0], [10, 14]]
+	c_sgs = [[2.0, 0.0, 5.0], [3.0, 3, 0, 0], [3, 3]]
+	cs    = [[6.0, 0.0, 13.0], [13.0, 17, 0, 0], [13, 17]]
+
+	c_bp, c_sg, c = [], [], []
+	for i in xrange(0, len(m)):
+		c_bp.append(np.mean(c_bps[i]))
+		c_sg.append(np.mean(c_sgs[i]))
+		c.append(np.mean(cs[i]))
+
+	fig, ax = pl.subplots()
+	pl.plot(m, c_bp, '-s', label = '$C_{bp}$')
+	pl.plot(m, c_sg, '-^', label = '$C_{sg}$')
+	pl.plot(m, c, '-o', label = '$C_{tot}$')
+
+	pl.legend(loc = 'upper right')
+	pl.xlabel('number of samples $m$')
+	pl.ylabel('$|C_{tru}-C_{obs}|$')
+
+	pl.show()
 
 
 #
@@ -163,7 +168,6 @@ def exponenial_func(x, a, b, c):
 
 def get_args(argv):
 	parser = argparse.ArgumentParser(prog = 'jplot.py', description = "plots for tusv paper")
-	# parser.add_argument('input_file', help = 'input .txt file', type = lambda x: is_valid_file(parser, x))
 	return vars(parser.parse_args(argv))
 
 def is_valid_file(parser, arg):
