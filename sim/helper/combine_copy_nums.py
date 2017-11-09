@@ -1,7 +1,8 @@
+
 #     file: combine_copy_nums.py
 #   author: Jingyi Wang
 #  created: 9/29/2017
-# modified: 9/29/2017
+# modified: 10/24/2017
 #  purpose: combine list of triplets into triplet according to list of usages
 
 
@@ -60,25 +61,42 @@ def get_combined_segment_pos(posList, pos_dir_dict):
 	result = list()
 	tempBgn = posList[0]
 	i = 0
+
 	while i < len(posList) - 1:
-		if 'bgn' in pos_dir_dict[posList[i + 1]] and 'end' not in pos_dir_dict[posList[i + 1]]:
-			tempEnd = posList[i + 1] - 1
+		# end at this position
+		if 'end' in pos_dir_dict[posList[i]]:
+			tempEnd = posList[i]
 			result.append((tempBgn, tempEnd))
-			tempBgn = posList[i + 1]
-			i += 1
-		elif 'end' in pos_dir_dict[posList[i + 1]] and 'bgn' not in pos_dir_dict[posList[i + 1]]:
-			tempEnd = posList[i + 1]
-			result.append((tempBgn, tempEnd))
-			if i + 1 == len(posList) - 1:
-				break
+
+			if 'bgn' in pos_dir_dict[posList[i + 1]]:
+				tempBgn = posList[i + 1]
 			else:
-				tempBgn = posList[i + 2]
-				i += 2
-		elif 'bgn' in pos_dir_dict[posList[i + 1]] and 'end' in pos_dir_dict[posList[i + 1]]:
-			tempEnd = posList[i + 1] - 1
-			result += [(tempBgn, tempEnd), (posList[i + 1], posList[i + 1])]
-			tempBgn = posList[i + 1] + 1
+				tempBgn = posList[i] + 1
 			i += 1
+		# not end at this position
+		else:
+			if 'bgn' in pos_dir_dict[posList[i + 1]] and 'end' not in pos_dir_dict[posList[i + 1]]:
+				tempEnd = posList[i + 1] - 1
+				result.append((tempBgn, tempEnd))
+				tempBgn = posList[i + 1]
+				i += 1
+			elif 'end' in pos_dir_dict[posList[i + 1]] and 'bgn' not in pos_dir_dict[posList[i + 1]]:
+				tempEnd = posList[i + 1]
+				result.append((tempBgn, tempEnd))
+				if tempEnd == posList[-1]:
+					break
+				else:
+					tempBgn = posList[i + 2]
+				i += 2
+			else:
+				tempEnd = posList[i + 1] - 1
+				result += [(tempBgn, tempEnd), (posList[i + 1], posList[i + 1])]
+				tempBgn = posList[i + 1] + 1
+				i += 1
+
+	# last element in posList
+	if tempBgn == posList[-1]:
+		result.append((tempBgn, tempBgn))
 	return result
 
 
@@ -101,4 +119,3 @@ def get_indices_for_segment(bgn2idx, end2idx, s, e):
 	for i in range(firstIdx, lastIdx + 1):
 		result.append(i)
 	return result
-

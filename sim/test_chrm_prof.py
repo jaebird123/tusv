@@ -5,7 +5,7 @@ pp = pprint.PrettyPrinter(indent = 2)
 cp = chpr.ChrmProf("AAABBBCCCDDDEEEFFF")
 print ''
 
-print cp.amp(4,10)
+print cp.amp(4, 10)
 cp.pprint()
 print ''
 
@@ -60,7 +60,6 @@ cp3.pprint()
 print ''
 
 # test _get_mated_pos() and _get_cur_pos() functions
-
 cp4 = chpr.ChrmProf("RRRRRSSSSSTTTTTUUUUUVVVVV")
 print ''
 
@@ -138,5 +137,10 @@ cp5_copied.pprint()
 print ''
 
 dic = cp5_copied.get_sv_read_nums(cov, read_len)
+pp.pprint(dic)
+print ''
+
+
+dic = cp5.get_sv_read_nums(cov, read_len)
 pp.pprint(dic)
 print ''

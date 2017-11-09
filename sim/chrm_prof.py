@@ -10,6 +10,7 @@ import sys
 import copy
 import math
 import random
+import numpy as np
 
 # helpers
 def printnow(s):
@@ -21,11 +22,11 @@ def printerr(s):
 	sys.stderr.flush()
 
 class ChrmProf:
-	# chrm (str) entire chromosome string. ex: "ATCCGA"
-	def __init__(self, chrm):
-		self.chrm = chrm
-		self.org = _OrgNode(0, len(chrm) - 1)
-		self.mut = _MutNode(0, len(chrm) - 1)
+	# n (length of chromosome)
+	def __init__(self, n):
+		self.n = n
+		self.org = _OrgNode(0, n - 1)
+		self.mut = _MutNode(0, n - 1)
 		self.org.children.append(self.mut)
 		self.mut.parent = self.org
 
@@ -42,40 +43,15 @@ class ChrmProf:
 			cur = cur.r
 		return bgns, ends, cps
 
-	#  input: cov (int) coverage. number of reads the average position should have mapping to it
-	#         read_len (int) length of a single random read
-	# output: svs (dict) key is breakpoint tuple. this contains position (int) and isLeft (bool) if segment extends left
-	#                    val is dict containing the following key-value pairs
-	#                        k: mate,       v: (breakpoint tuple) same (pos, isLeft) tuple but for mate
-	#                        k: mated_reads v: (int) number of reads containing this breakpoint and mate breakpoint
-	#                        k: total_reads v: (int) number of total reads ()
+
 	def get_sv_read_nums(self, cov, read_len):
-		if read_len % 2 == 0: # ensure read length is odd (so it has a center)
-			read_len += 1
-		n = len(self.chrm)
-		num_reads = int(math.ceil(float(n) / float(read_len) * float(cov)))
-		positions = range(0, n)
-		ps = [ random.choice(positions) for _ in xrange(0, num_reads) ] # get center positions of reads
-		ps.sort()
-
-		d = read_len / 2 # distance to be subtracted / added to get to position of edge of read
-		cur = self.mut
+		n = self.n
 		svs = {}
-		i = 1
-		while cur != None and ps:
-			p = ps.pop(0) # remove next position from list
-			pl, pr = p - d, p + d
-
-			if cur.end < p:
-				cur = cur.r
-			if cur == None:
-				break
-
-			if _is_between(cur.bgn, pl, pr):
-				_add_sv_to_dict(svs, cur, True)
-			if _is_between(cur.end, pl, pr):
-				_add_sv_to_dict(svs, cur, False)
-
+		cur = self.mut
+		while cur != None:
+			_add_sv_to_dict(svs, cur, True)
+			_add_sv_to_dict(svs, cur, False)
+			cur = cur.r
 		# remove any splits that are not actually breakpoints
 		keys_to_remove = []
 		for k, v in svs.items():
@@ -83,11 +59,13 @@ class ChrmProf:
 				keys_to_remove.append(k)
 		for k in keys_to_remove:
 			del svs[k]
-		
+		# add breakpoint copy numbers
+		_append_bp_copy_num(svs, self.mut)
+
 		return svs
 
 	def deepcopy(self):
-		c = ChrmProf(self.chrm)
+		c = ChrmProf(self.n)
 		c.org, muts = _deepcopy_org(self.org)
 		muts = sorted(muts, key = lambda x: x.bgn)
 		n = len(muts)
@@ -106,9 +84,6 @@ class ChrmProf:
 
 		self._rev_mut(bgn, end)
 
-		s1, s2, s3 = tri_split_str(self.chrm, bgn, end)
-		self.chrm = s1 + s2[::-1] + s3
-
 		return True
 
 	def rem(self, bgn, end):
@@ -117,6 +92,7 @@ class ChrmProf:
 		self._2split(bgn, end) # split mutated and original list nodes at bgn and end positions
 
 		head, tail = _get_head_tail(self.mut, bgn, end)
+
 		newL = head.l
 		newR = tail.r
 
@@ -144,9 +120,7 @@ class ChrmProf:
 			cur.end -= seg_len
 			cur = cur.r
 
-		s1, s2, s3 = tri_split_str(self.chrm, bgn, end)
-		self.chrm = s1 + s3
-
+		self.n = self.n - (end - bgn + 1)
 		return True
 
 	# duplicate region from bgn to end. returns boolean for complete or not
@@ -170,14 +144,12 @@ class ChrmProf:
 			head.end += seg_len
 			head = head.r
 
-		# duplicate string
-		s1, s2, s3 = tri_split_str(self.chrm, bgn, end)
-		self.chrm = s1 + s2 + s2 + s3
+		self.n = self.n + (end - bgn + 1)
 		return True
 
 	# split bgn and end positions if needed. do not need to split at start or terminal of chromosome
 	def _2split(self, bgn, end):
-		n = len(self.chrm)
+		n = self.n
 		if bgn > 0:
 			self._split(bgn)     # do not split if bgn is 0 (start of chrm)
 		if end + 1 < n:
@@ -187,7 +159,7 @@ class ChrmProf:
 	def _split(self, k):
 
 		# return if k out of bounds
-		if k == 0 or k >= len(self.chrm):
+		if k == 0 or k >= self.n:
 			printerr('cannot split at k = ' + str(k) + '\n')
 			return
 
@@ -197,7 +169,7 @@ class ChrmProf:
 			splitMut = splitMut.r
 		orgNode1 = splitMut.parent
 
-		if splitMut.bgn == k or splitMut.end == k: # should not split b/c this was already split
+		if splitMut.bgn == k or splitMut.end == k-1: # should not split b/c this was already split
 			return
 
 		k = k - splitMut.bgn # make k the new length of the old node (node that will be split)
@@ -211,7 +183,7 @@ class ChrmProf:
 			orgNode2.children.append(mutNode2)
 
 	def _is_in_bounds(self, bgn, end):
-		n = len(self.chrm)
+		n = self.n
 		if bgn < 0 or bgn > end or end >= n:
 			printerr('chromosome has length ' + str(n) + '. cannot mutate [' + str(bgn) + ', ' + str(end) + ']')
 			return False
@@ -219,7 +191,7 @@ class ChrmProf:
 
 	# returns True if bgn and end do not match any positions already in mutated list
 	def _is_splitable(self, bgn, end):
-		n = len(self.chrm)
+		n = self.n
 		if bgn != 0 and _is_already_mut_bgn(self.mut, bgn):
 			return False
 		if end + 1 < n and _is_already_mut_end(self.mut, end):
@@ -273,7 +245,6 @@ class ChrmProf:
 			self.mut = it # set head of mut if we inverted start of list
 
 	def pprint(self):
-		printnow('sequence: ' + str(self.chrm) + '\n')
 		printnow('lists:\n')
 		for lst_name, cur in {'org': self.org, 'mut': self.mut}.iteritems():
 			printnow(lst_name + ': ')
@@ -378,6 +349,7 @@ def _is_already_mut_end(cur, end):
 
 # fm (int) is bgn index of one of the nodes. to (int) is end of one of the nodes
 def _copy_from_to(head, fm, to):
+	oldhead = head
 	while head != None and head.bgn != fm: # make head the beggining of where to copy
 		head = head.r
 
@@ -399,6 +371,12 @@ def _copy_from_to(head, fm, to):
 			return curA, headB, curB
 		curA = curA.r
 	printerr('should not get here')
+	cur = oldhead
+	printnow('\n\n')
+	while cur != None:
+		cur.pprint()
+		cur = cur.r
+	printnow('\n\n')
 
 #  input: rgbgn (int) region beginning. position of bgn for first node of list to be inverted
 #         rgend (int) region ending.    position of end for last  node of list to be inverted
@@ -466,25 +444,44 @@ def _get_cur_pos(cur, isBgn):
 def _add_sv_to_dict(svs, cur, isBgn):
 	matePos, mateIsLeft, isAdj = _get_mated_pos(cur, isBgn)
 	curPos, curIsLeft = _get_cur_pos(cur, isBgn)
-	if matePos == None:
+	if matePos is None:
 		return
 
 	curTup = (curPos, curIsLeft)
 	mateTup = (matePos, mateIsLeft)
 
-	if matePos != None:
-		if curTup not in svs:
-			svs[curTup] = {'total_reads': 0, 'mated_reads': 0}
+	
+	if curTup not in svs:
+		svs[curTup] = {'total_reads': 0, 'mated_reads': 0}
 
-		if mateTup not in svs:
-			svs[mateTup] = {'total_reads': 0, 'mated_reads': 0}
+	if mateTup not in svs:
+		svs[mateTup] = {'total_reads': 0, 'mated_reads': 0}
 
-		svs[curTup]['total_reads'] += 1
+	svs[curTup]['total_reads'] += 1
 
-		if not isAdj:
-			svs[curTup]['mated_reads'] += 1
-			svs[curTup]['mate'] = mateTup
-			svs[mateTup]['mate'] = curTup
+	if not isAdj:
+		svs[curTup]['mated_reads'] += 1
+		svs[curTup]['mate'] = mateTup
+		svs[mateTup]['mate'] = curTup
+
+def _append_bp_copy_num(svs, mut_head):
+	cur = mut_head
+	while cur != None:
+		for isBgn in [True, False]:
+			curPos, curIsLeft = _get_cur_pos(cur, isBgn)
+			matPos, matIsLeft, _ = _get_mated_pos(cur, isBgn)
+			curTup = (curPos, curIsLeft)
+			matTup = (matPos, matIsLeft)
+			if curTup in svs and svs[curTup]['mate'] == matTup:
+				if 'copy_num' not in svs[curTup]:
+					svs[curTup]['copy_num'] = 0
+				svs[curTup]['copy_num'] += 1
+		cur = cur.r
+
+	# add copy number of zeros for breakpoints that were deleted
+	for tup, val in svs.iteritems():
+		if 'copy_num' not in val:
+			svs[tup]['copy_num'] = 0
 
 #
 #   DEEP COPY
