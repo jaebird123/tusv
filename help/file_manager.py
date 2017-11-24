@@ -11,6 +11,7 @@
 
 import sys      # for command line arguments
 import os       # for manipulating files and folders
+import shutil
 
 from os.path import isfile, join
 
@@ -76,6 +77,17 @@ def valid_master_dir_with_files_and_ext(parser, arg, fnames, ext):
 #
 #   File creation functions
 #
+
+def make_dir(d):
+	if not os.path.exists(d):
+		os.makedirs(d)
+
+def cp_dir_contents(src, dest):
+	src_files = os.listdir(src)
+	for file_name in src_files:
+		full_file_name = os.path.join(src, file_name)
+		if (os.path.isfile(full_file_name)):
+			shutil.copy(full_file_name, dest)
 
 # copies file structure (only one level deep) from in_dir to out_dir
 def cp_file_structure_to_out_dir(in_dir, out_dir):

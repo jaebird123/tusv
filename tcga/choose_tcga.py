@@ -32,6 +32,8 @@ CLINICAL_FEATURES_FNAME = 'clinical_features.tsv'
 
 def main(argv):
 	args = get_args(argv)
+	# print args['tcga_patients_directory']
+	# exit()
 
 	mut_dic = get_mut_dic(args['tcga_patients_directory'])
 	met_dic = get_ismet_dic(args['clinical_features_file'])
@@ -40,14 +42,21 @@ def main(argv):
 
 	no_met_mut_dic, met_mut_dic = split_mut_by_met(mut_dic, met_dic)
 
-	print_mut_dic(no_met_mut_dic)
+	print_mut_dic(no_met_mut_dic, args['tcga_patients_directory'], args['nmt_dir'])
 	print '\n - - - - - - METASTATIC - - - - -\n'
-	print_mut_dic(met_mut_dic)
+	print_mut_dic(met_mut_dic, args['tcga_patients_directory'], args['met_dir'])
 
-def print_mut_dic(mut_dic):
+def print_mut_dic(mut_dic, from_master_dir = None, to_dir = None):
 	mut_dic = inv_dic(mut_dic)
+	i = 0
 	for (num_bps, num_cnvs) in sorted(mut_dic.keys(), key = lambda x: x[1]): # sort by num_cnvs
+		i += 1
 		print_sample(mut_dic[(num_bps, num_cnvs)], num_bps, num_cnvs)
+		if from_master_dir != None and to_dir != None:
+			from_sample_dir = from_master_dir + mut_dic[(num_bps, num_cnvs)] + '/'
+			to_sample_dir = to_dir + str(i).zfill(2) + '_' + mut_dic[(num_bps, num_cnvs)] + '/'
+			fm.make_dir(to_sample_dir)
+			# fm.cp_dir_contents(from_sample_dir, to_sample_dir)
 
 def inv_dic(dic):
 	out = {}
@@ -146,6 +155,8 @@ def get_args(argv):
 	parser = argparse.ArgumentParser(prog = 'choose_tcga.py', description = "to select which TCGA samples to run tusv.py on")
 	parser.add_argument('-t', '--tcga_patients_directory', required = True, type = lambda x: fm.valid_master_dir_with_files_and_ext(parser, x, [], '.vcf'), help = 'master directory containing subdirectories. each subdirectory should contain a single .vcf file')
 	parser.add_argument('-c', '--clinical_features_file', default = CLINICAL_FEATURES_FNAME, type = lambda x: is_valid_file(parser, x), help = 'file containing clinical information on each of the samples from the tcga patients directory')
+	parser.add_argument('-m', '--met_dir', required = True, type = lambda x: fm.valid_dir(parser, x), help = 'file where all TCGA metastatic TCGA directories will be copied to')
+	parser.add_argument('-n', '--nmt_dir', required = True, type = lambda x: fm.valid_dir(parser, x), help = 'file where all TCGA non metastatic TCGA directories will be copied to')
 	return vars(parser.parse_args(argv))
 
 	# valid_master_dir_with_files_and_ext(parser, arg, fnames, ext)
