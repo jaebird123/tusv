@@ -103,6 +103,8 @@ def test_get_U(F, n, l, r):
 
 def test_get_C(F, Q, G, A, H, n, c_max, lamb1, lamb2):
 	m = len(F)
+	l, _ = Q.shape
+	F[0, l+1] = 0.0 # test what happens if a segment has zero copy number
 	U = gen_U(m, n)
 	printnow('\ntest_get_C starting\n') # time limit of 10 seconds
 	obj_val, C, E, R, W, err_msg = sv.get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, 10)

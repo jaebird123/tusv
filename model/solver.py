@@ -142,7 +142,7 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, time_limit = None):
 	Gam = _get_gp_arr_int_var(mod, N, l, c_max)
 
 	F_seg = F[:, l:].dot(np.transpose(Q)) # [m, l] mixed copy number of segment containing breakpoint
-	Pi = np.divide(F[:, :l], F_seg)       # [m, l] expected bpf (ratio of bp copy num to segment copy num)
+	Pi = np_divide_0(F[:, :l], F_seg)     # [m, l] expected bpf (ratio of bp copy num to segment copy num)
 
 	_set_copy_num_constraints(mod, C, n, l, r)
 	_set_tree_constraints(mod, E, n)
@@ -664,3 +664,10 @@ def gen_U(m, n):
 def printnow(s):
 	sys.stdout.write(s)
 	sys.stdout.flush()
+
+
+def np_divide_0(a, b):
+	with np.errstate(divide = 'ignore', invalid = 'ignore'):
+		c = np.true_divide( a, b )
+		c[ ~ np.isfinite( c )] = 0  # -inf inf NaN
+	return c
