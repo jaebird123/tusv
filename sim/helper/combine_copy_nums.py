@@ -12,6 +12,14 @@
 
 # type(triplets) = list, each triplet has 3 lists (bgns, ends, cps)
 # type(usages) = list
+#  input: triplets (3D list) [num_chromosomes by 3 by num_segments]
+#                            triplets[k, 0, s] is beginning position for segment s on chromosome k
+#                            triplets[k, 1, s] is ending    position for segment s on chromosome k
+#                            triplets[k, 2, s] is copy number        for segment s on chromosome k
+#         usages (list of float) [num_chromosomes] long. usages[k] is weight (percent) of chromosome k
+# output: bgns (list of int) [num_unioned_segments] bgns[s] is beginning position of segment s
+#         ends (list of int) [num_unioned_segments] ends[s] is ending    position of segment s
+#         cps  (list of int) [num_unioned_segments] cps[s]  is fractional copy number of segment s
 def combine_copy_nums(triplets, usages):
 	posList, pos_dir_dict = get_pos_info_dict(triplets)
 

@@ -44,31 +44,19 @@ NUM_CORES = mp.cpu_count()
 
 def main(argv):
 	args = get_args(argv)
-	
-	F, Q, G, A, H = gm.get_mats(args['input_directory'])
-	l, r = Q.shape
-	m = len(F)
+	unmix(args['input_directory'], args['output_directory'], args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'])
 
-	if args['lambda1'] == None:
-		# args['lambda1'] = float(r) / float((l + r) * m) # r/(l+r) * 1/m
-		args['lambda1'] = 0.05
-	if args['lambda2'] == None:
-		args['lambda2'] = 0.05
-		# args['lambda2'] = float(l) / float(l + r)
-
-	n, c_max, lamb1, lamb2 = args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2']
-	num_restarts, num_cd_iters, num_processors, time_limit = args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit']
-
+def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, num_processors, time_limit):
+	F, Q, G, A, H = gm.get_mats(in_dir)
 	check_valid_input(Q, G, A, H)
-
-	p = mp.Pool(processes = num_processors)
 
 	arg_set = (F, Q, G, A, H, n, c_max, lamb1, lamb2, num_cd_iters, time_limit)
 	arg_sets_to_use = [ arg_set for _ in xrange(0, num_restarts) ]
 
-	Us, Cs, Es, obj_vals = [], [], [], []
-	Rs, Ws = [], []
+	Us, Cs, Es, obj_vals, Rs, Ws = [], [], [], [], [], []
+
 	num_complete = 0
+	p = mp.Pool(processes = num_processors)
 	while arg_sets_to_use:
 		arg_sets = arg_sets_to_use
 		arg_sets_to_use = []
@@ -76,8 +64,6 @@ def main(argv):
 		for res in p.imap_unordered(setup_get_UCE, arg_sets):
 			U, C, E, R, W, obj_val, err_msg = res
 			if err_msg != None:
-				# arg_sets_to_use.append(arg_set)
-				# printnow('failure... putting task back on the queue\n')
 				printnow('failure... task terminated\n')
 			else:
 				num_complete += 1
@@ -96,7 +82,8 @@ def main(argv):
 			best_obj_val = obj_val
 			best_i = i
 
-	write_to_files(args['output_directory'], Us[best_i], Cs[best_i], Es[best_i], Rs[best_i], Ws[best_i], F, obj_vals[best_i])
+	write_to_files(out_dir, Us[best_i], Cs[best_i], Es[best_i], Rs[best_i], Ws[best_i], F, obj_vals[best_i])
+
 
 def setup_get_UCE(args):
 	return sv.get_UCE(*args)
@@ -203,18 +190,21 @@ def raiseif(should_raise, msg):
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 def get_args(argv):
-	parser = argparse.ArgumentParser(prog = 'template.py', description = "unmixes mixed copy numbers for breakpoints and segments and infers phylogeny with various phylogenetic constraints")
+	parser = argparse.ArgumentParser(prog = 'tusv.py', description = "unmixes mixed copy numbers for breakpoints and segments and infers phylogeny with various phylogenetic constraints")
 	parser.add_argument('-i', '--input_directory', required = True, type = lambda x: fm.valid_dir_ext(parser, x, '.vcf'), help = 'directory containing a .vcf for each sample from a single patient')
 	parser.add_argument('-o', '--output_directory', required = True, type = lambda x: fm.valid_dir(parser, x), help = 'empty directory for output U.tsv, C.tsv, and T.dot files to go')
+	set_non_dir_args(parser)
+	return vars(parser.parse_args(argv))
+
+def set_non_dir_args(parser):
 	parser.add_argument('-n', '--num_leaves', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 2, MAX_NUM_LEAVES), help = 'number of leaves for inferred binary tree. total number of nodes will be 2*n-1')
 	parser.add_argument('-c', '--c_max', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_COPY_NUM), help = 'maximum allowed copy number at any node in the tree')
-	parser.add_argument('-l', '--lambda1', type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'regularization term to weight total tree cost against unmixing error in objective function. setting as 0.0 will put no tree cost constraint. setting as 1.0 will equally consider tree cost and unmixing error.')
-	parser.add_argument('-a', '--lambda2', type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'regularization term to weight error in inferred ratio between copy number of a breakpoint and the copy number of the segment originally containing the position of breakpoint')
+	parser.add_argument('-l', '--lambda1', default = 0.25, type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'regularization term to weight total tree cost against unmixing error in objective function. setting as 0.0 will put no tree cost constraint. setting as 1.0 will equally consider tree cost and unmixing error.')
+	parser.add_argument('-a', '--lambda2', default = 6.25, type = lambda x: fm.valid_float_above(parser, x, 0.0), help = 'regularization term to weight error in inferred ratio between copy number of a breakpoint and the copy number of the segment originally containing the position of breakpoint')
 	parser.add_argument('-t', '--cord_desc_iters', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_CORD_DESC_ITERS), help = 'maximum number of cordinate descent iterations for each initialization of U')
 	parser.add_argument('-r', '--restart_iters', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_RESTART_ITERS), help = 'number of random initializations for picking usage matrix U')
-	parser.add_argument('-p', '--processors', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, NUM_CORES), help = 'number of processors to use')
+	parser.add_argument('-p', '--processors', default = 1, type = lambda x: fm.valid_int_in_range(parser, x, 1, NUM_CORES), help = 'number of processors to use')
 	parser.add_argument('-m', '--time_limit', type = int, help = 'maximum time (in seconds) allowed for a single iteration of the cordinate descent algorithm')
-	return vars(parser.parse_args(argv))
 
 # # # # # # # # # # # # # # # # # # # # # # # # #
 #   C A L L   T O   M A I N   F U N C T I O N   #
