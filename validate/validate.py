@@ -38,7 +38,7 @@ def main(argv):
 	score_Cb, score_Cs, score_C, score_U, dist_T, score_FUC, obj_val = get_scores(args['actual_directory'], args['expected_directory'])
 	
 	print ' Cb: ' + str(score_Cb)
-	print ' Cb: ' + str(score_Cs)
+	print ' Cs: ' + str(score_Cs)
 	print '  C: ' + str(score_C)
 	print '  U: ' + str(score_U)
 	print '  T: ' + str(dist_T)
@@ -123,8 +123,13 @@ def get_perm_best_U_score(Ua, Ue, perms):
 
 #  input: X (np.array)
 #         Y (np.array) same dimensions as Y
+#   does: removes any columns in X or Y that has any negative values
 # output: score (float) L1 distance between X and Y
 def get_L1_score(X, Y):
+	m, n = X.shape
+	cols_to_remove = [ j for j in xrange(0, n) if np.any(X[:, j] < 0) or np.any(Y[:, j] < 0) ]
+	X = np.delete(X, cols_to_remove, axis = 1)
+	Y = np.delete(Y, cols_to_remove, axis = 1)
 	return np.sum(np.absolute(X - Y))
 
 # LAST ROW OF C IS ASSUMED TO BE ROOT NODE

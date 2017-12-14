@@ -44,11 +44,15 @@ NUM_CORES = mp.cpu_count()
 
 def main(argv):
 	args = get_args(argv)
-	unmix(args['input_directory'], args['output_directory'], args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'])
+	unmix(args['input_directory'], args['output_directory'], args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'], args['num_subsamples'])
 
-def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, num_processors, time_limit):
-	F, Q, G, A, H = gm.get_mats(in_dir)
+#  input: num_seg_subsamples (int or None) number of segments to include in deconvolution. these are
+#           in addition to any segments contining an SV as thos are manditory for the SV. None is all segments
+def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, num_processors, time_limit, num_seg_subsamples = None):
+	F_full, Q, G, A, H = gm.get_mats(in_dir)
 	check_valid_input(Q, G, A, H)
+
+	F, Q, org_indxs = randomly_remove_segments(F_full, Q, num_seg_subsamples)
 
 	arg_set = (F, Q, G, A, H, n, c_max, lamb1, lamb2, num_cd_iters, time_limit)
 	arg_sets_to_use = [ arg_set for _ in xrange(0, num_restarts) ]
@@ -82,7 +86,7 @@ def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, n
 			best_obj_val = obj_val
 			best_i = i
 
-	write_to_files(out_dir, Us[best_i], Cs[best_i], Es[best_i], Rs[best_i], Ws[best_i], F, obj_vals[best_i])
+	write_to_files(out_dir, Us[best_i], Cs[best_i], Es[best_i], Rs[best_i], Ws[best_i], F, obj_vals[best_i], F_full, org_indxs)
 
 
 def setup_get_UCE(args):
@@ -93,13 +97,24 @@ def printnow(s):
 	sys.stdout.flush()
 
 # d (str) is local directory path. all others are np.array
-def write_to_files(d, U, C, E, R, W, F, obj_val):
+# input: F (np.array) [m, l+r'] mixed copy number for l bps, r' subset of r segments for each of m samples
+#        F_full (np.array) [m, l+r] mixed copy number for all l bps and r segments for each sample
+#        org_indices (list of int) for each segment in F, the index of where it is found in input F_all
+def write_to_files(d, U, C, E, R, W, F, obj_val, F_full, org_indices):
+	l = F.shape[1] - len(org_indices)
+	r = F_full.shape[1] - l
+	n, _ = C.shape
+	
+	c_org_indices = [ i for i in xrange(0, l) ] + org_indices
+	C_out = -1*np.ones((n, l+r), dtype = float) # C with segments that were removed inserted back in with avg from F_full
+	C_out[:, c_org_indices] = C[:, :]           #   -1 is an indicator that this column should be omitted in validation
+
 	fnames = [ d + fname for fname in ['U.tsv', 'C.tsv', 'T.dot', 'F.tsv', 'obj_val.txt'] ]
 	for fname in fnames:
 		fm.touch(fname)
 	np.savetxt(fnames[0], U, delimiter = '\t', fmt = '%.8f')
-	np.savetxt(fnames[1], C, delimiter = '\t', fmt = '%i')
-	np.savetxt(fnames[3], F, delimiter = '\t', fmt = '%.8f')
+	np.savetxt(fnames[1], C_out, delimiter = '\t', fmt = '%.8f')
+	np.savetxt(fnames[3], F_full, delimiter = '\t', fmt = '%.8f')
 	np.savetxt(fnames[4], np.array([obj_val]), delimiter = '\t', fmt = '%.8f')
 	dot = to_dot(E, R, W)
 	open(fnames[2], 'w').write(dot.source) # write tree T in dot format
@@ -121,6 +136,51 @@ def to_dot(E, R, W):
 				dot.node(str(j))
 				dot.edge(str(i), str(j), label = edge_label)
 	return dot
+
+#  input: F (np.array) [m, l+r] mixed copy number of l breakpoints, r segments across m samples
+#         Q (np.array) [l, r] binary indicator that breakpoint is in segment
+#         num_seg_subsamples (int) number of segments (in addition to those containing breakpoints)
+#             that are to be randomly kept in F
+# output: F (np.array) [m, l+r'] r' is reduced number of segments
+#         Q (np.array) [l, r']
+#         org_indices (list of int) for each segment in output, the index of where it is found in input F
+def randomly_remove_segments(F, Q, num_seg_subsamples):
+	if num_seg_subsamples is None:
+		return F, Q, None
+	l, r = Q.shape
+	l, r = int(l), int(r)
+
+	bp_segs = []
+	for s in xrange(0, r):
+		if sum(Q[:, s]): # segment s has a breakpoint in it
+			bp_segs.append(s)
+	non_bp_segs = [ s for s in xrange(0, r) if s not in bp_segs ]  # all non breakpoint containing segments
+	num_seg_subsamples = min(num_seg_subsamples, len(non_bp_segs)) # ensure not removing more segs than we have
+	if num_seg_subsamples == len(non_bp_segs):
+		return F, Q, None
+
+	keeps = random_subset(non_bp_segs, num_seg_subsamples) # segments to keep
+	keeps = sorted(bp_segs + keeps)
+	drops = [ s for s in xrange(0, r) if s not in keeps ]
+
+	Q = np.delete(Q, drops, axis = 1) # remove columns for segments we do not keep
+	F = np.delete(F, [ s + l for s in drops ], axis = 1)
+	
+	return F, Q, [ s + l for s in keeps ]
+
+# returns a subset of lst containing k random elements
+def random_subset(lst, k):
+	result = []
+	n = 0
+	for item in lst:
+		n += 1
+		if len(result) < k:
+			result.append(item)
+		else:
+			s = int(random.random() * n)
+			if s < k:
+				result[s] = item
+	return result
 
 # temporary functions. REMOVE LATER!!!
 
@@ -205,6 +265,7 @@ def set_non_dir_args(parser):
 	parser.add_argument('-r', '--restart_iters', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_RESTART_ITERS), help = 'number of random initializations for picking usage matrix U')
 	parser.add_argument('-p', '--processors', default = 1, type = lambda x: fm.valid_int_in_range(parser, x, 1, NUM_CORES), help = 'number of processors to use')
 	parser.add_argument('-m', '--time_limit', type = int, help = 'maximum time (in seconds) allowed for a single iteration of the cordinate descent algorithm')
+	parser.add_argument('-s', '--num_subsamples', type = int, default = None, help = 'number of segments (in addition to those containing breakpoints) that are to be randomly kept for deconvolution. default keeps all segments.')
 
 # # # # # # # # # # # # # # # # # # # # # # # # #
 #   C A L L   T O   M A I N   F U N C T I O N   #
