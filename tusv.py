@@ -25,6 +25,7 @@ import solver as sv
 import file_manager as fm      # sanitizes file and directory arguments
 import generate_matrices as gm # gets F, Q, G, A, H from .vcf files
 import printer as pt
+import vcf_help as vh
 
 
 # # # # # # # # # # # # #
@@ -36,6 +37,7 @@ MAX_COPY_NUM = 20
 MAX_CORD_DESC_ITERS = 1000
 MAX_RESTART_ITERS = 1000
 NUM_CORES = mp.cpu_count()
+METADATA_FNAME = 'data/2017_09_18_metadata.vcf'
 
 
 # # # # # # # # # # # # #
@@ -44,12 +46,12 @@ NUM_CORES = mp.cpu_count()
 
 def main(argv):
 	args = get_args(argv)
-	unmix(args['input_directory'], args['output_directory'], args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'], args['num_subsamples'])
+	unmix(args['input_directory'], args['output_directory'], args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'], args['metadata_file'], args['num_subsamples'])
 
 #  input: num_seg_subsamples (int or None) number of segments to include in deconvolution. these are
 #           in addition to any segments contining an SV as thos are manditory for the SV. None is all segments
-def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, num_processors, time_limit, num_seg_subsamples = None):
-	F_full, Q, G, A, H = gm.get_mats(in_dir)
+def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, num_processors, time_limit, metadata_file, num_seg_subsamples = None):
+	F_full, Q, G, A, H, bp_attr, cv_attr = gm.get_mats(in_dir)
 	check_valid_input(Q, G, A, H)
 
 	F, Q, org_indxs = randomly_remove_segments(F_full, Q, num_seg_subsamples)
@@ -86,7 +88,9 @@ def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, n
 			best_obj_val = obj_val
 			best_i = i
 
-	write_to_files(out_dir, Us[best_i], Cs[best_i], Es[best_i], Rs[best_i], Ws[best_i], F, obj_vals[best_i], F_full, org_indxs)
+	writer = build_vcf_writer(F_full, Cs[best_i], org_indxs, G, bp_attr, cv_attr, metadata_file)
+
+	write_to_files(out_dir, Us[best_i], Cs[best_i], Es[best_i], Rs[best_i], Ws[best_i], F, obj_vals[best_i], F_full, org_indxs, writer)
 
 
 def setup_get_UCE(args):
@@ -96,11 +100,53 @@ def printnow(s):
 	sys.stdout.write(s)
 	sys.stdout.flush()
 
+#  input: F (np.array) [m, l+r] mixed copy number for all l bps and r segments for each sample
+#         C (np.array) [n, l+r] integer copy number for each of n clones for all l bps and r' subset of r segments
+#         org_indices (list of int) for each segment in F, the index of where it is found in input F_all
+#         G (np.array) [l, l] G[i, j] == G[j, i] == 1 iff breakpoint i and j are mates. 0 otherwise
+#         bp_attr (dict) key is breakpoint index. val is tuple (chrm (str), pos (int), extends_left (bool))
+#         cv_attr (dict) key (int) is segment index. val is tuple (chrm (str), bgn_pos (int), end_pos (int))
+# output: w (vcf_help.Writer) writer to be used to write entire .vcf file
+def build_vcf_writer(F, C, org_indices, G, bp_attr, cv_attr, metadata_file):
+	m, _ = F.shape
+	n, _ = C.shape
+	l, _ = G.shape
+	r = F.shape[1] - l
+	
+	c_org_indices = [ i for i in xrange(0, l) ] + org_indices
+	C_out = -1*np.ones((n, l+r), dtype = float) # C with segments that were removed inserted back in with avg from F_full
+	C_out[:, c_org_indices] = C[:, :]           #   -1 is an indicator that this column should be omitted in validation
+	C = C_out
+
+	w = vh.Writer(m, n, metadata_file)
+	bp_ids = [ 'bp' + str(b+1) for b in xrange(0, l) ]
+	for b in xrange(0, l):
+		chrm, pos, ext_left = bp_attr[b]
+		rec_id = bp_ids[b]
+		mate_id = bp_ids[np.argwhere(G[b, :])[0]]
+		fs = list(F[:, b])
+		cps = list(C[:, b])
+		if cps[0] < 0:
+			cps = []
+		w.add_bp(chrm, pos, ext_left, rec_id, mate_id, fs, cps)
+	cv_ids = [ 'cnv' + str(s+1) for s in xrange(0, r) ]
+	for s in xrange(0, r):
+		chrm, bgn, end = cv_attr[s]
+		rec_id = cv_ids[s]
+		fs = list(F[:, s + l])
+		cps = list(C[:, s + l])
+		if cps[0] < 0:
+			cps = []
+		w.add_cv(chrm, bgn, end, rec_id, fs, cps)
+
+	return w
+
 # d (str) is local directory path. all others are np.array
 # input: F (np.array) [m, l+r'] mixed copy number for l bps, r' subset of r segments for each of m samples
 #        F_full (np.array) [m, l+r] mixed copy number for all l bps and r segments for each sample
 #        org_indices (list of int) for each segment in F, the index of where it is found in input F_all
-def write_to_files(d, U, C, E, R, W, F, obj_val, F_full, org_indices):
+#        writer (vcf_help.Writer) writer to be used to write entire .vcf file
+def write_to_files(d, U, C, E, R, W, F, obj_val, F_full, org_indices, writer):
 	l = F.shape[1] - len(org_indices)
 	r = F_full.shape[1] - l
 	n, _ = C.shape
@@ -109,13 +155,14 @@ def write_to_files(d, U, C, E, R, W, F, obj_val, F_full, org_indices):
 	C_out = -1*np.ones((n, l+r), dtype = float) # C with segments that were removed inserted back in with avg from F_full
 	C_out[:, c_org_indices] = C[:, :]           #   -1 is an indicator that this column should be omitted in validation
 
-	fnames = [ d + fname for fname in ['U.tsv', 'C.tsv', 'T.dot', 'F.tsv', 'obj_val.txt'] ]
+	fnames = [ d + fname for fname in ['U.tsv', 'C.tsv', 'T.dot', 'F.tsv', 'obj_val.txt', 'unmixed.vcf'] ]
 	for fname in fnames:
 		fm.touch(fname)
 	np.savetxt(fnames[0], U, delimiter = '\t', fmt = '%.8f')
 	np.savetxt(fnames[1], C_out, delimiter = '\t', fmt = '%.8f')
 	np.savetxt(fnames[3], F_full, delimiter = '\t', fmt = '%.8f')
 	np.savetxt(fnames[4], np.array([obj_val]), delimiter = '\t', fmt = '%.8f')
+	writer.write(open(fnames[5], 'w'))
 	dot = to_dot(E, R, W)
 	open(fnames[2], 'w').write(dot.source) # write tree T in dot format
 	dot.render(d + 'T')                    # display tree T in .png
@@ -266,6 +313,7 @@ def set_non_dir_args(parser):
 	parser.add_argument('-p', '--processors', default = 1, type = lambda x: fm.valid_int_in_range(parser, x, 1, NUM_CORES), help = 'number of processors to use')
 	parser.add_argument('-m', '--time_limit', type = int, help = 'maximum time (in seconds) allowed for a single iteration of the cordinate descent algorithm')
 	parser.add_argument('-s', '--num_subsamples', type = int, default = None, help = 'number of segments (in addition to those containing breakpoints) that are to be randomly kept for deconvolution. default keeps all segments.')
+	parser.add_argument('-d', '--metadata_file', default = METADATA_FNAME, type = lambda x: fm.is_valid_file(parser, x), help = 'file containing metadata information for output .vcf file')
 
 # # # # # # # # # # # # # # # # # # # # # # # # #
 #   C A L L   T O   M A I N   F U N C T I O N   #

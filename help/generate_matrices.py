@@ -24,6 +24,8 @@ import file_manager as fm
 #####################
 
 #  input: in_dir (str) full path to input directory containing .vcf file(s)
+# output: bp_attr (dict) key is breakpoint index. val is tuple (chrm (str), pos (int), extends_left (bool))
+#         cv_attr (dict) key (int) is segment index. val is tuple (chrm (str), bgn_pos (int), end_pos (int))
 def get_mats(in_dir):
 	sampleList = fm._fnames_with_extension(in_dir, '.vcf')
 
@@ -43,10 +45,12 @@ def get_mats(in_dir):
 			bp_id_to_tuple[str(i+1) + k] = toTuple[k]     # add all entries from toTuple (dict) to bp_id_to_tuple (dict)
 
 	BP_idx_dict, l = get_BP_idx_dict(BP_sample_dict)
+
 	CN_startPos_dict, CN_endPos_dict, r = get_CN_indices_dict(CN_sample_dict)
 
-	F, Q, A, H = make_matrices(m, l, r, sampleList, BP_sample_dict, BP_idx_dict, CN_sample_rec_dict, CN_startPos_dict, CN_endPos_dict)
-	
+	F, Q, A, H, cv_attr = make_matrices(m, l, r, sampleList, BP_sample_dict, BP_idx_dict, CN_sample_rec_dict, CN_startPos_dict, CN_endPos_dict)
+	bp_attr = _inv_dic(BP_idx_dict)
+
 	F = np.array(F).astype(float)
 	Q = np.array(Q)
 	A = np.array(A)
@@ -54,7 +58,22 @@ def get_mats(in_dir):
 
 	G = make_G(BP_idx_dict, bp_id_to_mate_id, bp_id_to_tuple)
 
-	return F, Q, G, A, H
+	return F, Q, G, A, H, bp_attr, cv_attr
+
+#  input: bp_id_to_mate_id
+#         BP_idx_dict[(chrom, pos, direction)] == bp_index
+# output: chrms (list of str) chromosome for each breakpoint in order of breakpoint index
+#         poss (list of int) position on chromosome for each breakpoint in order ...
+#         oris (list of bool) True if break end extends to the left in original genome. False otherwise
+def _get_bp_attr(BP_idx_dict):
+	inv_BP_idx_dict = _inv_dic(BP_idx_dict) # keys are now index of breakpoints
+	chrms, poss, oris, mate_idxs = [], [], [], []
+	for i in sorted(inv_BP_idx_dict.iterkeys()):
+		chrm, pos, ori = inv_BP_idx_dict[i]
+		chrms.append(chrm)
+		poss.append(pos)
+		oris.append(ori)
+	return chrms, poss, oris
 
 
 # init a r*c 2d list filling with 0
@@ -65,7 +84,7 @@ def make_2d_list(r,c):
     return result
 
 
-# input dictionaries, output four matrices
+# output: cv_attr (dict) key (int) is segment index. val is tuple (chrm (str), bgn_pos (int), end_pos (int))
 def make_matrices(m, l, r, sampleList, BP_sample_dict, BP_idx_dict, CN_sample_rec_dict, CN_startPos_dict, CN_endPos_dict):
 	F, Q, A, H = make_2d_list(m, l + r), make_2d_list(l, r), make_2d_list(m, l), make_2d_list(m, l)
 
@@ -103,7 +122,10 @@ def make_matrices(m, l, r, sampleList, BP_sample_dict, BP_idx_dict, CN_sample_re
 				for cn_idx in cn_idx_list:
 					F[sample_idx][cn_idx + l] = cn
 
-	return F, Q, A, H
+	# create dictionary with key as segment index and val as tuple containing (chrm, bgn, end)
+	cv_attr = { i: (chrm, bgn, end) for chrm, lst in seg_dic.iteritems() for (i, bgn, end) in lst }
+
+	return F, Q, A, H, cv_attr
 
 #  input: segs (list of tuple) tuple is ( seg_idx, bgn_pos, end_pos ) for segments of a single chromosome
 #         pos (int) position of segment that will be returned
