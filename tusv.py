@@ -16,7 +16,11 @@ import argparse # for command line arguments
 import random
 import numpy as np
 import multiprocessing as mp
+
 from graphviz import Digraph
+from ete2 import Tree          # for creating phylogenetic trees for .xml output
+from Bio import Phylo          # for creating phylogenies to export as phylo .xml files
+from cStringIO import StringIO # for converting string to file (for creating initial phylo .xml)
 
 # custom modules
 sys.path.insert(0, 'model/')
@@ -92,6 +96,50 @@ def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, n
 
 	write_to_files(out_dir, Us[best_i], Cs[best_i], Es[best_i], Rs[best_i], Ws[best_i], F, obj_vals[best_i], F_full, org_indxs, writer)
 
+#  input: F (np.array) [m, l+r] mixed copy number of l breakpoints, r segments across m samples
+#         Q (np.array) [l, r] binary indicator that breakpoint is in segment
+#         num_seg_subsamples (int) number of segments (in addition to those containing breakpoints)
+#             that are to be randomly kept in F
+# output: F (np.array) [m, l+r'] r' is reduced number of segments
+#         Q (np.array) [l, r']
+#         org_indices (list of int) for each segment in output, the index of where it is found in input F
+def randomly_remove_segments(F, Q, num_seg_subsamples):
+	if num_seg_subsamples is None:
+		return F, Q, None
+	l, r = Q.shape
+	l, r = int(l), int(r)
+
+	bp_segs = []
+	for s in xrange(0, r):
+		if sum(Q[:, s]): # segment s has a breakpoint in it
+			bp_segs.append(s)
+	non_bp_segs = [ s for s in xrange(0, r) if s not in bp_segs ]  # all non breakpoint containing segments
+	num_seg_subsamples = min(num_seg_subsamples, len(non_bp_segs)) # ensure not removing more segs than we have
+	if num_seg_subsamples == len(non_bp_segs):
+		return F, Q, None
+
+	keeps = random_subset(non_bp_segs, num_seg_subsamples) # segments to keep
+	keeps = sorted(bp_segs + keeps)
+	drops = [ s for s in xrange(0, r) if s not in keeps ]
+
+	Q = np.delete(Q, drops, axis = 1) # remove columns for segments we do not keep
+	F = np.delete(F, [ s + l for s in drops ], axis = 1)
+	
+	return F, Q, [ s + l for s in keeps ]
+
+# returns a subset of lst containing k random elements
+def random_subset(lst, k):
+	result = []
+	n = 0
+	for item in lst:
+		n += 1
+		if len(result) < k:
+			result.append(item)
+		else:
+			s = int(random.random() * n)
+			if s < k:
+				result[s] = item
+	return result
 
 def setup_get_UCE(args):
 	return sv.get_UCE(*args)
@@ -99,6 +147,11 @@ def setup_get_UCE(args):
 def printnow(s):
 	sys.stdout.write(s)
 	sys.stdout.flush()
+
+
+# # # # # # # # # # # # # # # #
+#   W R I T E   O U T P U T   #
+# # # # # # # # # # # # # # # #
 
 #  input: F (np.array) [m, l+r] mixed copy number for all l bps and r segments for each sample
 #         C (np.array) [n, l+r] integer copy number for each of n clones for all l bps and r' subset of r segments
@@ -155,7 +208,7 @@ def write_to_files(d, U, C, E, R, W, F, obj_val, F_full, org_indices, writer):
 	C_out = -1*np.ones((n, l+r), dtype = float) # C with segments that were removed inserted back in with avg from F_full
 	C_out[:, c_org_indices] = C[:, :]           #   -1 is an indicator that this column should be omitted in validation
 
-	fnames = [ d + fname for fname in ['U.tsv', 'C.tsv', 'T.dot', 'F.tsv', 'obj_val.txt', 'unmixed.vcf'] ]
+	fnames = [ d + fname for fname in ['U.tsv', 'C.tsv', 'T.dot', 'F.tsv', 'obj_val.txt', 'unmixed.vcf', 'unmixed.xml'] ]
 	for fname in fnames:
 		fm.touch(fname)
 	np.savetxt(fnames[0], U, delimiter = '\t', fmt = '%.8f')
@@ -166,7 +219,7 @@ def write_to_files(d, U, C, E, R, W, F, obj_val, F_full, org_indices, writer):
 	dot = to_dot(E, R, W)
 	open(fnames[2], 'w').write(dot.source) # write tree T in dot format
 	dot.render(d + 'T')                    # display tree T in .png
-
+	write_xml(fnames[6], E, C, l)
 
 #  input: E (np.array of int) [2n-1, 2n-1] 0 if no edge, 1 if edge between nodes i and j
 #         R (np.array of int) [2n-1, 2n-1] cost of each edge in the tree
@@ -184,82 +237,31 @@ def to_dot(E, R, W):
 				dot.edge(str(i), str(j), label = edge_label)
 	return dot
 
-#  input: F (np.array) [m, l+r] mixed copy number of l breakpoints, r segments across m samples
-#         Q (np.array) [l, r] binary indicator that breakpoint is in segment
-#         num_seg_subsamples (int) number of segments (in addition to those containing breakpoints)
-#             that are to be randomly kept in F
-# output: F (np.array) [m, l+r'] r' is reduced number of segments
-#         Q (np.array) [l, r']
-#         org_indices (list of int) for each segment in output, the index of where it is found in input F
-def randomly_remove_segments(F, Q, num_seg_subsamples):
-	if num_seg_subsamples is None:
-		return F, Q, None
-	l, r = Q.shape
-	l, r = int(l), int(r)
-
-	bp_segs = []
-	for s in xrange(0, r):
-		if sum(Q[:, s]): # segment s has a breakpoint in it
-			bp_segs.append(s)
-	non_bp_segs = [ s for s in xrange(0, r) if s not in bp_segs ]  # all non breakpoint containing segments
-	num_seg_subsamples = min(num_seg_subsamples, len(non_bp_segs)) # ensure not removing more segs than we have
-	if num_seg_subsamples == len(non_bp_segs):
-		return F, Q, None
-
-	keeps = random_subset(non_bp_segs, num_seg_subsamples) # segments to keep
-	keeps = sorted(bp_segs + keeps)
-	drops = [ s for s in xrange(0, r) if s not in keeps ]
-
-	Q = np.delete(Q, drops, axis = 1) # remove columns for segments we do not keep
-	F = np.delete(F, [ s + l for s in drops ], axis = 1)
+#  input: E (np.array)
+def write_xml(fname, E, C, l):
+	n, _ = E.shape
 	
-	return F, Q, [ s + l for s in keeps ]
+	root = Tree()
+	root.name = str(n - 1)
+	stack = [root]
+	while stack:
+		cur = stack.pop()
+		i = int(cur.name)
+		child_idxs = np.where(E[i, :] == 1)[0]
+		for ci in child_idxs:
+			child = cur.add_child(name = str(ci))
+			child.dist = np.linalg.norm( np.subtract( C[i, l:], C[ci, l:] ), ord = 1 )
+			stack.append(child)
 
-# returns a subset of lst containing k random elements
-def random_subset(lst, k):
-	result = []
-	n = 0
-	for item in lst:
-		n += 1
-		if len(result) < k:
-			result.append(item)
-		else:
-			s = int(random.random() * n)
-			if s < k:
-				result[s] = item
-	return result
+	# write tree to phyloxml file
+	newick_tree = Phylo.read(StringIO(root.write(format = 1)), 'newick') # format=1 gives branch lengths and names for all nodes (leaves and internal)
+	xmltree = newick_tree.as_phyloxml() # convert to PhyloXML.Phylogeny type
+	Phylo.write(xmltree, open(fname, 'w'), 'phyloxml')
 
-# temporary functions. REMOVE LATER!!!
 
-def get_vars():
-	m = 1       # samples
-	n = 3       # leaves
-	l = 6       # breakpoints
-	r = 10      # segments
-	c_max = 7  # maximum copy number
-	f_scale = 5
-
-	F = f_scale * np.random.rand(m, l + r)
-	Q = np.array([ np.arange(0, r) == random.randint(0, r-1) for bp in xrange(l) ], dtype = int)
-	G = gen_G(l)
-	A = np.random.binomial(100, 0.25, [m, l])
-	H = 100 * np.ones([m, l])
-	lamb = 1.0
-	alpha = 1.5
-
-	return F, Q, G, A, H, n, c_max, lamb, alpha, 
-
-def gen_G(l):
-	G = np.zeros((l, l))
-	I = [ x for x in xrange(0, l) ]   # list of all indicies
-	random.shuffle(I)                 # randomly permut to make random pairs
-	I = np.array(I).reshape((l/2, 2)) # make a l/2 by 2 numpy array of mated pairs
-	for i, j in I:
-		G[i, j] = 1
-		G[j, i] = 1
-		G[i, i] = 1
-		G[j, j] = 1
-	return G
+# # # # # # # # # # # # # # # # # # # #
+#   I N P U T   V A L I D A T I O N   #
+# # # # # # # # # # # # # # # # # # # #
 
 # input: Q (np.array of 0 or 1) [l, r] q_b,s == 1 if breakpoint b is in segment s. 0 otherwise
 #        G (np.array of 0 or 1) [l, l] g_s,t == 1 if breakpoints s and t are mates. 0 otherwise
