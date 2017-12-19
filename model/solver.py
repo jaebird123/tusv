@@ -514,13 +514,6 @@ def _get_bp_frequency_constraints(C, U, Q, A, H, m, n, l, r, alpha):
 #   G U R O B I   V A R I A B L E   M A K E R S   #
 # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-# def _get_gp_1D_arr_bin_var(mod, n):
-# 	X = np.empty((n), dtype = gp.Var)
-# 	for i in xrange(0, n):
-# 		X[i] = mod.addVar(vtype = gp.GRB.BINARY)
-# 	mod.update()
-# 	return X
-
 def _get_gp_arr_int_var(mod, m, n, vmax = None):
 	X = np.empty((m, n), dtype = gp.Var)
 	for i in xrange(0, m):
@@ -529,7 +522,7 @@ def _get_gp_arr_int_var(mod, m, n, vmax = None):
 				X[i, j] = mod.addVar(lb = 0, vtype = gp.GRB.INTEGER)
 			else:
 				X[i, j] = mod.addVar(lb = 0, ub = vmax, vtype = gp.GRB.INTEGER)
-	mod.update()
+	# mod.update()
 	return X
 
 def _get_gp_arr_bin_var(mod, m, n):
@@ -537,7 +530,7 @@ def _get_gp_arr_bin_var(mod, m, n):
 	for i in xrange(0, m):
 		for j in xrange(0, n):
 			X[i, j] = mod.addVar(vtype = gp.GRB.BINARY)
-	mod.update()
+	# mod.update()
 	return X
 
 def _get_gp_arr_cnt_var(mod, m, n, vmax = None):
@@ -548,7 +541,7 @@ def _get_gp_arr_cnt_var(mod, m, n, vmax = None):
 				X[i, j] = mod.addVar(lb = 0, vtype = gp.GRB.CONTINUOUS)
 			else:
 				X[i, j] = mod.addVar(lb = 0, ub = vmax, vtype = gp.GRB.CONTINUOUS)
-	mod.update()
+	# mod.update()
 	return X
 
 def _get_gp_3D_arr_int_var(mod, l, m, n, vmax):
@@ -560,7 +553,7 @@ def _get_gp_3D_arr_int_var(mod, l, m, n, vmax):
 					X[i, j, k] = mod.addVar(lb = 0, vtype = gp.GRB.INTEGER)
 				else:
 					X[i, j, k] = mod.addVar(lb = 0, ub = vmax, vtype = gp.GRB.INTEGER)
-	mod.update()
+	# mod.update()
 	return X
 
 def _get_gp_3D_arr_bin_var(mod, l, m, n):
@@ -569,14 +562,14 @@ def _get_gp_3D_arr_bin_var(mod, l, m, n):
 		for j in xrange(0, m):
 			for k in xrange(0, n):
 				X[i, j, k] = mod.addVar(vtype = gp.GRB.BINARY)
-	mod.update()
+	# mod.update()
 	return X
 
 def _get_abs(mod, x):
 	x_abs = mod.addVar(vtype = gp.GRB.INTEGER)
 	mod.addConstr(x_abs, gp.GRB.GREATER_EQUAL, x)
-	mod.addConstr(x_abs, gp.GRB.GREATER_EQUAL, -1 * x)
-	mod.update()
+	mod.addConstr(x_abs, gp.GRB.GREATER_EQUAL, 0)
+	# mod.update() # <- removing this drastically speeds up solver
 	return x_abs
 
 def _get_bin_rep(mod, X, vmax):
