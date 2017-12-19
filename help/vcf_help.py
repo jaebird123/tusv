@@ -1,7 +1,7 @@
 #     file: vcf_help.py
 #   author: Jesse Eaton
 #  created: 12/14/2017
-# modified: 12/14/2017
+# modified: 12/19/2017
 #  purpose: Helper module for writing .vcf files
 
 
@@ -141,21 +141,6 @@ class CV:
 		calls = _get_calls(self.mixfs, self.cps, w.snames, w.cnames)
 		return vcf.model._Record(self.chrm, self.pos, self.rec_id, ref, alts, qual, filt, info, fmt, w.snames + w.cnames, calls)
 
-def generate_cnv(chrm, pos, rec_id, alt_type, info_end, gt, cn):
-	ref = '.'
-	alts = list()
-	alts.append(vcf.model._SV(alt_type))
-	qual = None
-	filt = list()
-	info = dict()
-	info['IMPRECISE'] = True
-	info['END'] = info_end
-	fmt = 'GT:CN'
-	samples = ['TUMOR', 'NORMAL']
-	calls = [vcf.model._Call(0, 'TUMOR', cnvCallData(gt, cn)), vcf.model._Call(1, 'NORMAL', cnvCallData('0|0',[1, 1]))]
-	newRec = vcf.model._Record(chrm, pos, rec_id, ref, alts, qual, filt, info, fmt, samples, calls)
-	return newRec
-
 
 # # # # # # # # # # # # # # # # # #
 #   H E L P E R   C L A S S E S   #
@@ -198,64 +183,3 @@ def _get_calls(mixfs, cps, snames, cnames):
 	for i, cp in enumerate(cps):
 		calls.append(vcf.model._Call(i, cnames[i], BpCallData(cnadj = int(cp))))
 	return calls
-
-
-
-# # # # # # # # # # # # # # # # # # # #
-#   P U B L I C   F U N C T I O N S   #
-# # # # # # # # # # # # # # # # # # # #
-
-
-
-
-
-# chrom(str), pos(int), rec_id(str), ref(str), qual = None, filter(list), fmt = 'GT:CNADJ', sample = ['TUMOR', 'NORMAL']
-# type(alts): list
-#              type(alts[0]) = class 'vcf.model._Breakend'
-#              dir(alts[0]): [..., 'chr', 'connectingSequence', 'orientation', 'pos', 'remoteOrientation', 'type', 'withinMainAssembly']
-#                           eg. alts[0] = ]1:149965077]
-#                               'chr' = str(1), 'connectingSequence' = str(), 'orientation' = True, 'pos' = int(149965077)
-#                               'remoteOrientation' = False, 'type' = 'BND', 'withinMainAssembly' = True
-# info(dict), info['SVTYPE'] = 'BND', info['MATEID'] = mate_sv_rec_id (str)
-def generate_sv(chrm, pos, rec_id, alt_chr, alt_pos, alt_ori, alt_rO, alt_cS, alt_wMA, info_mateid, gt, cnadj, bdp, dp):
-	ref = '.'
-	alts = list()
-	alts.append(vcf.parser._Breakend(alt_chr, alt_pos, alt_ori, alt_rO, alt_cS, alt_wMA))
-	qual = None
-	filt = list()
-	info = dict()
-	info['SVTYPE'] = 'BND'
-	info['MATEID'] = info_mateid
-	fmt = 'GT:CNADJ:BDP:DP'
-	samples = ['TUMOR', 'NORMAL']
-	calls = [vcf.model._Call(0, 'TUMOR', svCallData(gt,cnadj,bdp,dp)), vcf.model._Call(1, 'NORMAL', svCallData('0|0',0, 0, dp))]
-	newRec = vcf.model._Record(chrm, pos, rec_id, ref, alts, qual, filt, info, fmt, samples, calls)
-	return newRec
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# # # # # # # # # # # # # # # # # # # # #
-#   P R I V A T E   F U N C T I O N S   #
-# # # # # # # # # # # # # # # # # # # # #
-
-# here
