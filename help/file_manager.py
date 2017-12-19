@@ -24,6 +24,12 @@ def touch(fname, times = None):
 	with open(fname, 'a'):
 		os.utime(fname, times)
 
+def is_valid_file(parser, arg):
+	if not os.path.exists(arg):
+		parser.error('The file \"' + str(arg) + '\" could not be found.')
+	else:
+		return str(arg)
+
 # returns string as directory. adds error to parser if no valid directory
 def valid_dir(parser, arg):
 	if not os.path.exists(arg):

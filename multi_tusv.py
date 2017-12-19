@@ -42,7 +42,7 @@ def main(argv):
 		pt.printnow(' '.join([ '=' for _ in xrange(0, 30) ]))
 		pt.printnow('\tRunning: ' + subdir_name)
 		pt.printnow(' '.join([ '=' for _ in xrange(0, 30) ]))
-		tusv.unmix(sub_in_dir, sub_out_dir, args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'])
+		tusv.unmix(sub_in_dir, sub_out_dir, args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'], args['metadata_file'], args['num_subsamples'])
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #   C O M M A N D   L I N E   A R G U M E N T   F U N C T I O N S   #

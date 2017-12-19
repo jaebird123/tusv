@@ -16,7 +16,11 @@ import argparse # for command line arguments
 import random
 import numpy as np
 import multiprocessing as mp
+
 from graphviz import Digraph
+from ete2 import Tree          # for creating phylogenetic trees for .xml output
+from Bio import Phylo          # for creating phylogenies to export as phylo .xml files
+from cStringIO import StringIO # for converting string to file (for creating initial phylo .xml)
 
 # custom modules
 sys.path.insert(0, 'model/')
@@ -25,6 +29,7 @@ import solver as sv
 import file_manager as fm      # sanitizes file and directory arguments
 import generate_matrices as gm # gets F, Q, G, A, H from .vcf files
 import printer as pt
+import vcf_help as vh
 
 
 # # # # # # # # # # # # #
@@ -36,6 +41,7 @@ MAX_COPY_NUM = 20
 MAX_CORD_DESC_ITERS = 1000
 MAX_RESTART_ITERS = 1000
 NUM_CORES = mp.cpu_count()
+METADATA_FNAME = 'data/2017_09_18_metadata.vcf'
 
 
 # # # # # # # # # # # # #
@@ -44,36 +50,27 @@ NUM_CORES = mp.cpu_count()
 
 def main(argv):
 	args = get_args(argv)
-	unmix(args['input_directory'], args['output_directory'], args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'])
+	unmix(args['input_directory'], args['output_directory'], args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'], args['metadata_file'], args['num_subsamples'])
 
-def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, num_processors, time_limit):
-	F, Q, G, A, H = gm.get_mats(in_dir)
+#  input: num_seg_subsamples (int or None) number of segments to include in deconvolution. these are
+#           in addition to any segments contining an SV as thos are manditory for the SV. None is all segments
+def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, num_processors, time_limit, metadata_fname, num_seg_subsamples):
+	F_full, Q, G, A, H, bp_attr, cv_attr = gm.get_mats(in_dir)
 	check_valid_input(Q, G, A, H)
 
-	arg_set = (F, Q, G, A, H, n, c_max, lamb1, lamb2, num_cd_iters, time_limit)
-	arg_sets_to_use = [ arg_set for _ in xrange(0, num_restarts) ]
+	F, Q, org_indxs = randomly_remove_segments(F_full, Q, num_seg_subsamples)
 
 	Us, Cs, Es, obj_vals, Rs, Ws = [], [], [], [], [], []
-
 	num_complete = 0
-	p = mp.Pool(processes = num_processors)
-	while arg_sets_to_use:
-		arg_sets = arg_sets_to_use
-		arg_sets_to_use = []
-
-		for res in p.imap_unordered(setup_get_UCE, arg_sets):
-			U, C, E, R, W, obj_val, err_msg = res
-			if err_msg != None:
-				printnow('failure... task terminated\n')
-			else:
-				num_complete += 1
-				printnow(str(num_complete) + ' of ' + str(num_restarts) + ' complete\n')
-				Us.append(U)
-				Cs.append(C)
-				Es.append(E)
-				Rs.append(R)
-				Ws.append(W)
-				obj_vals.append(obj_val)
+	for i in xrange(0, num_restarts):
+		U, C, E, R, W, obj_val, err_msg = sv.get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, num_cd_iters, time_limit)
+		printnow(str(i + 1) + ' of ' + str(num_restarts) + ' random restarts complete\n')
+		Us.append(U)
+		Cs.append(C)
+		Es.append(E)
+		Rs.append(R)
+		Ws.append(W)
+		obj_vals.append(obj_val)
 
 	best_i = 0
 	best_obj_val = obj_vals[best_i]
@@ -82,8 +79,54 @@ def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, n
 			best_obj_val = obj_val
 			best_i = i
 
-	write_to_files(out_dir, Us[best_i], Cs[best_i], Es[best_i], Rs[best_i], Ws[best_i], F, obj_vals[best_i])
+	writer = build_vcf_writer(F_full, Cs[best_i], org_indxs, G, bp_attr, cv_attr, metadata_fname)
 
+	write_to_files(out_dir, Us[best_i], Cs[best_i], Es[best_i], Rs[best_i], Ws[best_i], F, obj_vals[best_i], F_full, org_indxs, writer)
+
+#  input: F (np.array) [m, l+r] mixed copy number of l breakpoints, r segments across m samples
+#         Q (np.array) [l, r] binary indicator that breakpoint is in segment
+#         num_seg_subsamples (int) number of segments (in addition to those containing breakpoints)
+#             that are to be randomly kept in F
+# output: F (np.array) [m, l+r'] r' is reduced number of segments
+#         Q (np.array) [l, r']
+#         org_indices (list of int) for each segment in output, the index of where it is found in input F
+def randomly_remove_segments(F, Q, num_seg_subsamples):
+	if num_seg_subsamples is None:
+		return F, Q, None
+	l, r = Q.shape
+	l, r = int(l), int(r)
+
+	bp_segs = []
+	for s in xrange(0, r):
+		if sum(Q[:, s]): # segment s has a breakpoint in it
+			bp_segs.append(s)
+	non_bp_segs = [ s for s in xrange(0, r) if s not in bp_segs ]  # all non breakpoint containing segments
+	num_seg_subsamples = min(num_seg_subsamples, len(non_bp_segs)) # ensure not removing more segs than we have
+	if num_seg_subsamples == len(non_bp_segs):
+		return F, Q, None
+
+	keeps = random_subset(non_bp_segs, num_seg_subsamples) # segments to keep
+	keeps = sorted(bp_segs + keeps)
+	drops = [ s for s in xrange(0, r) if s not in keeps ]
+
+	Q = np.delete(Q, drops, axis = 1) # remove columns for segments we do not keep
+	F = np.delete(F, [ s + l for s in drops ], axis = 1)
+	
+	return F, Q, [ s + l for s in keeps ]
+
+# returns a subset of lst containing k random elements
+def random_subset(lst, k):
+	result = []
+	n = 0
+	for item in lst:
+		n += 1
+		if len(result) < k:
+			result.append(item)
+		else:
+			s = int(random.random() * n)
+			if s < k:
+				result[s] = item
+	return result
 
 def setup_get_UCE(args):
 	return sv.get_UCE(*args)
@@ -92,19 +135,78 @@ def printnow(s):
 	sys.stdout.write(s)
 	sys.stdout.flush()
 
+
+# # # # # # # # # # # # # # # #
+#   W R I T E   O U T P U T   #
+# # # # # # # # # # # # # # # #
+
+#  input: F (np.array) [m, l+r] mixed copy number for all l bps and r segments for each sample
+#         C (np.array) [n, l+r] integer copy number for each of n clones for all l bps and r' subset of r segments
+#         org_indices (list of int) for each segment in F, the index of where it is found in input F_all
+#         G (np.array) [l, l] G[i, j] == G[j, i] == 1 iff breakpoint i and j are mates. 0 otherwise
+#         bp_attr (dict) key is breakpoint index. val is tuple (chrm (str), pos (int), extends_left (bool))
+#         cv_attr (dict) key (int) is segment index. val is tuple (chrm (str), bgn_pos (int), end_pos (int))
+# output: w (vcf_help.Writer) writer to be used to write entire .vcf file
+def build_vcf_writer(F, C, org_indices, G, bp_attr, cv_attr, metadata_fname):
+	m, _ = F.shape
+	n, _ = C.shape
+	l, _ = G.shape
+	r = F.shape[1] - l
+	
+	c_org_indices = [ i for i in xrange(0, l) ] + org_indices
+	C_out = -1*np.ones((n, l+r), dtype = float) # C with segments that were removed inserted back in with avg from F_full
+	C_out[:, c_org_indices] = C[:, :]           #   -1 is an indicator that this column should be omitted in validation
+	C = C_out
+
+	w = vh.Writer(m, n, metadata_fname)
+	bp_ids = [ 'bp' + str(b+1) for b in xrange(0, l) ]
+	for b in xrange(0, l):
+		chrm, pos, ext_left = bp_attr[b]
+		rec_id = bp_ids[b]
+		mate_id = bp_ids[np.argwhere(G[b, :])[0]]
+		fs = list(F[:, b])
+		cps = list(C[:, b])
+		if cps[0] < 0:
+			cps = []
+		w.add_bp(chrm, pos, ext_left, rec_id, mate_id, fs, cps)
+	cv_ids = [ 'cnv' + str(s+1) for s in xrange(0, r) ]
+	for s in xrange(0, r):
+		chrm, bgn, end = cv_attr[s]
+		rec_id = cv_ids[s]
+		fs = list(F[:, s + l])
+		cps = list(C[:, s + l])
+		if cps[0] < 0:
+			cps = []
+		w.add_cv(chrm, bgn, end, rec_id, fs, cps)
+
+	return w
+
 # d (str) is local directory path. all others are np.array
-def write_to_files(d, U, C, E, R, W, F, obj_val):
-	fnames = [ d + fname for fname in ['U.tsv', 'C.tsv', 'T.dot', 'F.tsv', 'obj_val.txt'] ]
+# input: F (np.array) [m, l+r'] mixed copy number for l bps, r' subset of r segments for each of m samples
+#        F_full (np.array) [m, l+r] mixed copy number for all l bps and r segments for each sample
+#        org_indices (list of int) for each segment in F, the index of where it is found in input F_all
+#        writer (vcf_help.Writer) writer to be used to write entire .vcf file
+def write_to_files(d, U, C, E, R, W, F, obj_val, F_full, org_indices, writer):
+	l = F.shape[1] - len(org_indices)
+	r = F_full.shape[1] - l
+	n, _ = C.shape
+	
+	c_org_indices = [ i for i in xrange(0, l) ] + org_indices
+	C_out = -1*np.ones((n, l+r), dtype = float) # C with segments that were removed inserted back in with avg from F_full
+	C_out[:, c_org_indices] = C[:, :]           #   -1 is an indicator that this column should be omitted in validation
+
+	fnames = [ d + fname for fname in ['U.tsv', 'C.tsv', 'T.dot', 'F.tsv', 'obj_val.txt', 'unmixed.vcf', 'unmixed.xml'] ]
 	for fname in fnames:
 		fm.touch(fname)
 	np.savetxt(fnames[0], U, delimiter = '\t', fmt = '%.8f')
-	np.savetxt(fnames[1], C, delimiter = '\t', fmt = '%i')
-	np.savetxt(fnames[3], F, delimiter = '\t', fmt = '%.8f')
+	np.savetxt(fnames[1], C_out, delimiter = '\t', fmt = '%.8f')
+	np.savetxt(fnames[3], F_full, delimiter = '\t', fmt = '%.8f')
 	np.savetxt(fnames[4], np.array([obj_val]), delimiter = '\t', fmt = '%.8f')
+	writer.write(open(fnames[5], 'w'))
 	dot = to_dot(E, R, W)
 	open(fnames[2], 'w').write(dot.source) # write tree T in dot format
 	dot.render(d + 'T')                    # display tree T in .png
-
+	write_xml(fnames[6], E, C, l)
 
 #  input: E (np.array of int) [2n-1, 2n-1] 0 if no edge, 1 if edge between nodes i and j
 #         R (np.array of int) [2n-1, 2n-1] cost of each edge in the tree
@@ -122,37 +224,31 @@ def to_dot(E, R, W):
 				dot.edge(str(i), str(j), label = edge_label)
 	return dot
 
-# temporary functions. REMOVE LATER!!!
+#  input: E (np.array)
+def write_xml(fname, E, C, l):
+	n, _ = E.shape
+	
+	root = Tree()
+	root.name = str(n - 1)
+	stack = [root]
+	while stack:
+		cur = stack.pop()
+		i = int(cur.name)
+		child_idxs = np.where(E[i, :] == 1)[0]
+		for ci in child_idxs:
+			child = cur.add_child(name = str(ci))
+			child.dist = np.linalg.norm( np.subtract( C[i, l:], C[ci, l:] ), ord = 1 )
+			stack.append(child)
 
-def get_vars():
-	m = 1       # samples
-	n = 3       # leaves
-	l = 6       # breakpoints
-	r = 10      # segments
-	c_max = 7  # maximum copy number
-	f_scale = 5
+	# write tree to phyloxml file
+	newick_tree = Phylo.read(StringIO(root.write(format = 1)), 'newick') # format=1 gives branch lengths and names for all nodes (leaves and internal)
+	xmltree = newick_tree.as_phyloxml() # convert to PhyloXML.Phylogeny type
+	Phylo.write(xmltree, open(fname, 'w'), 'phyloxml')
 
-	F = f_scale * np.random.rand(m, l + r)
-	Q = np.array([ np.arange(0, r) == random.randint(0, r-1) for bp in xrange(l) ], dtype = int)
-	G = gen_G(l)
-	A = np.random.binomial(100, 0.25, [m, l])
-	H = 100 * np.ones([m, l])
-	lamb = 1.0
-	alpha = 1.5
 
-	return F, Q, G, A, H, n, c_max, lamb, alpha, 
-
-def gen_G(l):
-	G = np.zeros((l, l))
-	I = [ x for x in xrange(0, l) ]   # list of all indicies
-	random.shuffle(I)                 # randomly permut to make random pairs
-	I = np.array(I).reshape((l/2, 2)) # make a l/2 by 2 numpy array of mated pairs
-	for i, j in I:
-		G[i, j] = 1
-		G[j, i] = 1
-		G[i, i] = 1
-		G[j, j] = 1
-	return G
+# # # # # # # # # # # # # # # # # # # #
+#   I N P U T   V A L I D A T I O N   #
+# # # # # # # # # # # # # # # # # # # #
 
 # input: Q (np.array of 0 or 1) [l, r] q_b,s == 1 if breakpoint b is in segment s. 0 otherwise
 #        G (np.array of 0 or 1) [l, l] g_s,t == 1 if breakpoints s and t are mates. 0 otherwise
@@ -205,6 +301,8 @@ def set_non_dir_args(parser):
 	parser.add_argument('-r', '--restart_iters', required = True, type = lambda x: fm.valid_int_in_range(parser, x, 1, MAX_RESTART_ITERS), help = 'number of random initializations for picking usage matrix U')
 	parser.add_argument('-p', '--processors', default = 1, type = lambda x: fm.valid_int_in_range(parser, x, 1, NUM_CORES), help = 'number of processors to use')
 	parser.add_argument('-m', '--time_limit', type = int, help = 'maximum time (in seconds) allowed for a single iteration of the cordinate descent algorithm')
+	parser.add_argument('-s', '--num_subsamples', type = int, default = None, help = 'number of segments (in addition to those containing breakpoints) that are to be randomly kept for deconvolution. default keeps all segments.')
+	parser.add_argument('-d', '--metadata_file', default = METADATA_FNAME, type = lambda x: fm.is_valid_file(parser, x), help = 'file containing metadata information for output .vcf file')
 
 # # # # # # # # # # # # # # # # # # # # # # # # #
 #   C A L L   T O   M A I N   F U N C T I O N   #
