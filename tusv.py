@@ -54,36 +54,23 @@ def main(argv):
 
 #  input: num_seg_subsamples (int or None) number of segments to include in deconvolution. these are
 #           in addition to any segments contining an SV as thos are manditory for the SV. None is all segments
-def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, num_processors, time_limit, metadata_file, num_seg_subsamples = None):
+def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, num_processors, time_limit, metadata_fname, num_seg_subsamples):
 	F_full, Q, G, A, H, bp_attr, cv_attr = gm.get_mats(in_dir)
 	check_valid_input(Q, G, A, H)
 
 	F, Q, org_indxs = randomly_remove_segments(F_full, Q, num_seg_subsamples)
 
-	arg_set = (F, Q, G, A, H, n, c_max, lamb1, lamb2, num_cd_iters, time_limit)
-	arg_sets_to_use = [ arg_set for _ in xrange(0, num_restarts) ]
-
 	Us, Cs, Es, obj_vals, Rs, Ws = [], [], [], [], [], []
-
 	num_complete = 0
-	p = mp.Pool(processes = num_processors)
-	while arg_sets_to_use:
-		arg_sets = arg_sets_to_use
-		arg_sets_to_use = []
-
-		for res in p.imap_unordered(setup_get_UCE, arg_sets):
-			U, C, E, R, W, obj_val, err_msg = res
-			if err_msg != None:
-				printnow('failure... task terminated\n')
-			else:
-				num_complete += 1
-				printnow(str(num_complete) + ' of ' + str(num_restarts) + ' complete\n')
-				Us.append(U)
-				Cs.append(C)
-				Es.append(E)
-				Rs.append(R)
-				Ws.append(W)
-				obj_vals.append(obj_val)
+	for i in xrange(0, num_restarts):
+		U, C, E, R, W, obj_val, err_msg = sv.get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, num_cd_iters, time_limit)
+		printnow(str(i + 1) + ' of ' + str(num_restarts) + ' random restarts complete\n')
+		Us.append(U)
+		Cs.append(C)
+		Es.append(E)
+		Rs.append(R)
+		Ws.append(W)
+		obj_vals.append(obj_val)
 
 	best_i = 0
 	best_obj_val = obj_vals[best_i]
@@ -92,7 +79,7 @@ def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, n
 			best_obj_val = obj_val
 			best_i = i
 
-	writer = build_vcf_writer(F_full, Cs[best_i], org_indxs, G, bp_attr, cv_attr, metadata_file)
+	writer = build_vcf_writer(F_full, Cs[best_i], org_indxs, G, bp_attr, cv_attr, metadata_fname)
 
 	write_to_files(out_dir, Us[best_i], Cs[best_i], Es[best_i], Rs[best_i], Ws[best_i], F, obj_vals[best_i], F_full, org_indxs, writer)
 
@@ -160,7 +147,7 @@ def printnow(s):
 #         bp_attr (dict) key is breakpoint index. val is tuple (chrm (str), pos (int), extends_left (bool))
 #         cv_attr (dict) key (int) is segment index. val is tuple (chrm (str), bgn_pos (int), end_pos (int))
 # output: w (vcf_help.Writer) writer to be used to write entire .vcf file
-def build_vcf_writer(F, C, org_indices, G, bp_attr, cv_attr, metadata_file):
+def build_vcf_writer(F, C, org_indices, G, bp_attr, cv_attr, metadata_fname):
 	m, _ = F.shape
 	n, _ = C.shape
 	l, _ = G.shape
@@ -171,7 +158,7 @@ def build_vcf_writer(F, C, org_indices, G, bp_attr, cv_attr, metadata_file):
 	C_out[:, c_org_indices] = C[:, :]           #   -1 is an indicator that this column should be omitted in validation
 	C = C_out
 
-	w = vh.Writer(m, n, metadata_file)
+	w = vh.Writer(m, n, metadata_fname)
 	bp_ids = [ 'bp' + str(b+1) for b in xrange(0, l) ]
 	for b in xrange(0, l):
 		chrm, pos, ext_left = bp_attr[b]

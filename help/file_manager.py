@@ -28,7 +28,7 @@ def is_valid_file(parser, arg):
 	if not os.path.exists(arg):
 		parser.error('The file \"' + str(arg) + '\" could not be found.')
 	else:
-		return open(arg, 'r')
+		return str(arg)
 
 # returns string as directory. adds error to parser if no valid directory
 def valid_dir(parser, arg):

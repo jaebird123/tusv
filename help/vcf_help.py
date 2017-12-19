@@ -31,13 +31,13 @@ class Writer:
 
 	# input: num_samples (int) number of bulk samples
 	#        num_clones (int) number of cell types (number of clones)
-	#        meta_datafname (file) file containing metadata for .vcf output
-	def __init__(self, num_samples, num_clones, metadata_file):
+	#        metadata_fname (str) file name containing metadata for .vcf output
+	def __init__(self, num_samples, num_clones, metadata_fname):
 		self.bps = {} # key is id. val is BP
 		self.cvs = {} # key is id. val is CV
 		self.snames = [ BULK_TUMOR_PREFIX + str(i+1) for i in xrange(0, num_samples) ] # name of each bulk tumor sample column
 		self.cnames = [ CELL_TYPE_PREFIX + str(i+1) for i in xrange(0, num_clones) ] # name of each cell type sample column
-		self.metadata_file = metadata_file
+		self.metadata_fname = metadata_fname
 
 	#  input: chrm (str) chromosome
 	#         pos (int) position on chromosome
@@ -61,8 +61,9 @@ class Writer:
 		self.cvs[rec_id] = CV(chrm, bgn, end, rec_id, mixfs, cps)
 
 	# input: file (file) file to write all records to
-	def write(self, file):		
-		reader = vcf.Reader(self.metadata_file, 'r')
+	def write(self, file):
+		metadata_file = open(self.metadata_fname, 'r')
+		reader = vcf.Reader(metadata_file, 'r')
 		reader.samples = self.snames + self.cnames
 		reader.metadata['filedate'][0] = datetime.datetime.now().date().strftime('%Y%m%d') # set date to current date
 		writer = vcf.Writer(file, reader)
@@ -72,6 +73,7 @@ class Writer:
 		muts.sort(key = lambda mut: mut.chrm, reverse = False)
 		for mut in muts:
 			writer.write_record(mut.as_rec(self))
+		metadata_file.close()
 
 
 # # # # # # # # # # # #
