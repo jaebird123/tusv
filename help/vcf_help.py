@@ -21,7 +21,7 @@ import vcf      # install with "pip install pyvcf"
 # # # # # # # # # # # # #
 
 BULK_TUMOR_PREFIX = 'BULK_TUMOR' # name of bulk tumor column in output vcf record
-CELL_TYPE_PREFIX = 'CT'
+# CELL_TYPE_PREFIX = 'CT'
 
 # # # # # # # # # # # # # # # # # # # #
 #   V C F   W R I T E R   C L A S S   #
@@ -36,7 +36,7 @@ class Writer:
 		self.bps = {} # key is id. val is BP
 		self.cvs = {} # key is id. val is CV
 		self.snames = [ BULK_TUMOR_PREFIX + str(i+1) for i in xrange(0, num_samples) ] # name of each bulk tumor sample column
-		self.cnames = [ CELL_TYPE_PREFIX + str(i+1) for i in xrange(0, num_clones) ] # name of each cell type sample column
+		self.cnames = [ str(i) for i in xrange(0, num_clones) ] # name of each cell type sample column
 		self.metadata_fname = metadata_fname
 
 	#  input: chrm (str) chromosome
