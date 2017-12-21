@@ -240,8 +240,13 @@ def write_xml(fname, E, C, l):
 			child.dist = np.linalg.norm( np.subtract( C[i, l:], C[ci, l:] ), ord = 1 )
 			stack.append(child)
 
-	# write tree to phyloxml file
-	newick_tree = Phylo.read(StringIO(root.write(format = 1)), 'newick') # format=1 gives branch lengths and names for all nodes (leaves and internal)
+	newick_str = root.write(features = ['name'], format = 1, format_root_node = True) # format_root_node=True puts root node name in str
+	newick_tree = Phylo.read(StringIO(newick_str), 'newick') # format=1 gives branch lengths and names for all nodes (leaves and internal)
+
+	for clade in newick_tree.find_clades():
+		if clade.confidence is not None: # Phylo.read() stupidly interprets names of internal nodes as confidences for newick strings
+			clade.name = clade.confidence
+			clade.confidence = None
 	xmltree = newick_tree.as_phyloxml() # convert to PhyloXML.Phylogeny type
 	Phylo.write(xmltree, open(fname, 'w'), 'phyloxml')
 
