@@ -35,7 +35,7 @@ def main(argv):
 
 	in_dir, out_dir = args['input_directory'], args['output_directory']
 	fm.cp_file_structure_to_out_dir(in_dir, out_dir)
-	for subdir_name in fm.get_subdir_names(in_dir):
+	for subdir_name in sorted(fm.get_subdir_names(in_dir)):
 		sub_in_dir = in_dir + subdir_name
 		sub_out_dir = out_dir + subdir_name
 		pt.printnow(''.join([ '\n' for _ in xrange(0, 10) ]))
