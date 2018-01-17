@@ -135,6 +135,7 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, time_limit = None):
 
 	C = _get_gp_arr_int_var(mod, N, l + r, c_max)
 	E = _get_gp_arr_bin_var(mod, N, N)
+	A = _get_gp_arr_bin_var(mod, N, N)            # ancestry matrix
 	R = _get_gp_arr_int_var(mod, N, N, c_max * r) # rho. cost across each edge
 	S = _get_gp_arr_cnt_var(mod, m, l, c_max)     # ess. bpf penalty for each bp in each sample
 	W = _get_gp_3D_arr_bin_var(mod, N, N, l)
@@ -146,9 +147,10 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, time_limit = None):
 
 	_set_copy_num_constraints(mod, C, n, l, r)
 	_set_tree_constraints(mod, E, n)
+	_set_ancestry_constraints(mod, A, E, N)
 	_set_cost_constraints(mod, R, C, E, n, l, r, c_max)
 	_set_bp_appearance_constraints(mod, C_bin, W, E, G, n, l)
-	_set_sum_condition_constraints(mod, C_bin, W, U, m, n, l)
+	_set_ancestry_condition_constraints(mod, C_bin, A, W, U, m, N, l)
 	_set_segment_copy_num_constraints(mod, Gam, C, Q, W, m, n, l, r)
 	_set_bpf_penalty(mod, S, Pi, U, C, Gam)
 
@@ -198,6 +200,19 @@ def _set_tree_constraints(mod, E, n):
 		for j in xrange(n, N):
 			mod.addConstr(E[i, j] + E[j, i] <= 1) # no 2 node cycles
 
+def _set_ancestry_constraints(mod, A, E, N):
+	for j in xrange(0, N-1):
+		mod.addConstr(A[N-1, j] == 1) # root v_{N-1} is ancestor to all nodes
+	for i in xrange(0, N):
+		mod.addConstr(A[i, N-1] == 0) # root v_{N-1} has no ancestors
+	for i in xrange(0, N):
+		for j in xrange(0, N):
+			mod.addConstr(A[i, j] >= E[i, j]) # ancestor if parent
+			for g in xrange(0, N):
+				if g != i:
+					mod.addConstr(A[g, j] >= E[i, j] + A[g, i] - 1) # v_j gets v_i's ancestor profile except a_{i,j}
+					mod.addConstr(A[g, j] <= 1 - E[i, j] + A[g, i])
+
 def _set_cost_constraints(mod, R, C, E, n, l, r, c_max):
 	N = 2*n-1
 	X = _get_gp_3D_arr_int_var(mod, N, N, r, c_max)
@@ -227,32 +242,38 @@ def _set_bp_appearance_constraints(mod, C_bin, W, E, G, n, l):
 		tmp = [ W[i, j, b] for i in xrange(0, N) for j in xrange(0, n) ]
 		mod.addConstr(gp.quicksum(tmp) == 1)
 
-def _set_sum_condition_constraints(mod, C_bin, W, U, m, n, l):
-	N = 2*n-1
+def _set_ancestry_condition_constraints(mod, C_bin, A, W, U, m, N, l):
 	W_node = _get_gp_arr_bin_var(mod, N, l)
 	for j in xrange(0, N):
-		for b in xrange(0, l): # 1 iff breakpoint appears at node j
-			mod.addConstr(W_node[j, b] == gp.quicksum(W[:, j, b]))
-	Phi = _get_gp_arr_cnt_var(mod, m, l)
-	for p in xrange(0, m):
-		for b in xrange(0, l): # percent of cells in sample p with breakpoint b
-			mod.addConstr(Phi[p, b] == gp.quicksum([ U[p, k] * C_bin[k, b] for k in xrange(0, N) ]))
-	Y, Y_bin = {}, {}
+		for b in xrange(0, l):
+			mod.addConstr(W_node[j, b] == gp.quicksum(W[:, j, b])) # 1 iff breakpoint b appears at node v_j
+	X = _get_gp_3D_arr_bin_var(mod, N, N, l)
 	for i in xrange(0, N):
 		for j in xrange(0, N):
-			Y[(i, j)] = _get_gp_arr_int_var(mod, l, l, 2)
-			Y_bin[(i, j)] = _get_bin_rep(mod, Y[(i, j)], 2)
-			for s in xrange(0, l):
-				for t in xrange(0, l): # 0 iff breakpoint s appears at node i then t immediately appears at j
-					mod.addConstr(Y[(i, j)][s, t] == 2 - W_node[i, s] - W[i, j, t])
-	D = _get_gp_arr_bin_var(mod, l, l)
-	for s in xrange(0, l):
-		for t in xrange(0, l): # D == 1 iff breakpoint s appears in parent node of where breakpoint t appears
-			mod.addConstr(D[s, t] == gp.quicksum([ (1 - Y_bin[(i, j)][s, t]) for i in xrange(0, N) for j in xrange(0, N) ]))
+			for b in xrange(0, l):
+				mod.addConstr(X[i, j, b] >= A[i, j] + C_bin[j, b] - 1) # X[i, j, b] == A[i, j] && C_bin[j, b]
+				mod.addConstr(X[i, j, b] <= A[i, j])
+				mod.addConstr(X[i, j, b] <= C_bin[j, b])
+	Y = _get_gp_arr_cnt_var(mod, N, l, vmax = N)
+	for i in xrange(0, N):
+		for b in xrange(0, l):
+			mod.addConstr(Y[i, b] == gp.quicksum(A[i, :]) - gp.quicksum(X[i, :, b]))
+	Y_bin = _get_bin_rep(mod, Y, vmax = N)
+	Z, Z_bin = {}, {}
+	for i in xrange(0, N):
+		for j in xrange(0, N):
+			Z[(i, j)] = _get_gp_arr_int_var(mod, l, l, vmax = 4)   # 3 - w_{i,s} - w_{j,t} - a_{i,j} + \bar{y}_{i,s}
+			Z_bin[(i, j)] = _get_bin_rep(mod, Z[(i, j)], vmax = 4) # Z_bin 0 if bp s appears in ancestor v_i
+			for s in xrange(0, l):                                 # to bp t appearing in descendant v_j
+				for t in xrange(0, l):
+					mod.addConstr(Z[(i, j)][s, t] == 3 - W_node[i, s] - W_node[j, t] - A[i, j] + Y_bin[i, s])
+	Phi = _get_gp_arr_cnt_var(mod, m, l)
 	for p in xrange(0, m):
+		for b in xrange(0, l): # Phi[p,s] >= Phi[p,t] constraint only if t appears in ancestor of s and s is never lost
+			mod.addConstr(Phi[p, b] == gp.quicksum([ U[p, k] * C_bin[k, b] for k in xrange(0, N) ]))
 		for s in xrange(0, l):
-			for t in xrange(0, t): # cell fraction of breakpoint in parent must be > cell frac in child
-				mod.addConstr(Phi[p, s] >= Phi[p, t] - 1 + D[s, t])
+			for t in xrange(0, l):
+				mod.addConstr(Phi[p, s] >= Phi[p, t] - 1 + gp.quicksum([ (1 - Z_bin[(i, j)][s, t]) for i in xrange(0, N) for j in xrange(0, N) ]))
 
 def _set_segment_copy_num_constraints(mod, Gam, C, Q, W, m, n, l, r):
 	N = 2*n-1
