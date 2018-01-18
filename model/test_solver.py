@@ -81,15 +81,7 @@ def test_get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters = 5, timelimit
 	printnow('\ntest_get_UCE starting\n')
 	U, C, E, R, W, obj_val, err_msg = sv.get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters, timelimit)
 
-	if err_msg != None:
-		printnow(err_msg + '\n')
-	else:
-		printnow(str(U) + '\n')
-		printnow(str(C) + '\n')
-		printnow(str(E) + '\n')
-		printnow(str(R) + '\n')
-		printnow(str(W) + '\n')
-		printnow('objective value is ' + str(obj_val) + '\n')
+	_print_results(err_msg, U, C, E, R, W, obj_val)
 
 	printnow('\ntest_get_UCE complete\n')
 
@@ -98,7 +90,7 @@ def test_get_U(F, n, l, r):
 	C = gen_C(n, l, r)
 	printnow('\ntest_get_U starting\n')
 	U = sv.get_U(F, C, n)
-	printnow(str(U) + '\n')
+	printnow('U:\t' + str(U) + '\n')
 	printnow('test_get_U complete\n')
 
 def test_get_C(F, Q, G, A, H, n, c_max, lamb1, lamb2):
@@ -109,16 +101,20 @@ def test_get_C(F, Q, G, A, H, n, c_max, lamb1, lamb2):
 	printnow('\ntest_get_C starting\n') # time limit of 10 seconds
 	obj_val, C, E, R, W, err_msg = sv.get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, 10)
 
+	_print_results(err_msg, U, C, E, R, W, obj_val)
+
+	printnow('test_get_C complete\n')
+
+def _print_results(err_msg, U, C, E, R, W, obj_val):
 	if err_msg != None:
 		printnow(err_msg + '\n')
 	else:
-		printnow(str(C) + '\n')
-		printnow(str(E) + '\n')
-		printnow(str(R) + '\n')
-		printnow(str(W) + '\n')
+		printnow('U:\n' + str(U) + '\n')
+		printnow('C:\n' + str(C) + '\n')
+		printnow('E:\n' + str(E) + '\n')
+		printnow('R:\n' + str(R) + '\n')
+		printnow('W:\n' + str(W) + '\n')
 		printnow('objective value is ' + str(obj_val) + '\n')
-
-	printnow('test_get_C complete\n')
 
 #
 #   CALL TO MAIN
