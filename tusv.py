@@ -42,6 +42,7 @@ MAX_CORD_DESC_ITERS = 1000
 MAX_RESTART_ITERS = 1000
 NUM_CORES = mp.cpu_count()
 METADATA_FNAME = 'data/2017_09_18_metadata.vcf'
+STR_DTYPE = 'S50'
 
 
 # # # # # # # # # # # # #
@@ -153,17 +154,20 @@ def build_vcf_writer(F, C, org_indices, G, bp_attr, cv_attr, metadata_fname):
 	l, _ = G.shape
 	r = F.shape[1] - l
 	
-	c_org_indices = [ i for i in xrange(0, l) ] + org_indices
-	C_out = -1*np.ones((n, l+r), dtype = float) # C with segments that were removed inserted back in with avg from F_full
-	C_out[:, c_org_indices] = C[:, :]           #   -1 is an indicator that this column should be omitted in validation
-	C = C_out
+	if org_indices is not None: # only fill in values for segments not used if did not use some segments
+		c_org_indices = [ i for i in xrange(0, l) ] + org_indices
+		C_out = -1*np.ones((n, l+r), dtype = float) # C with segments that were removed inserted back in with avg from F_full
+		C_out[:, c_org_indices] = C[:, :]           #   -1 is an indicator that this column should be omitted in validation
+		C = C_out
 
 	w = vh.Writer(m, n, metadata_fname)
-	bp_ids = [ 'bp' + str(b+1) for b in xrange(0, l) ]
+	bp_ids = np.array([ 'bp' + str(b+1) for b in xrange(0, l) ], dtype = STR_DTYPE)
+	for b in xrange(0, l): # force a breakpoint to not be mated with self
+		G[b, b] = 0
 	for b in xrange(0, l):
 		chrm, pos, ext_left = bp_attr[b]
 		rec_id = bp_ids[b]
-		mate_id = bp_ids[np.argwhere(G[b, :])[0]]
+		mate_id = bp_ids[np.where(G[b, :])[0][0]]
 		fs = list(F[:, b])
 		cps = list(C[:, b])
 		if cps[0] < 0:
@@ -187,30 +191,36 @@ def build_vcf_writer(F, C, org_indices, G, bp_attr, cv_attr, metadata_fname):
 #        org_indices (list of int) for each segment in F, the index of where it is found in input F_all
 #        writer (vcf_help.Writer) writer to be used to write entire .vcf file
 def write_to_files(d, U, C, E, R, W, F, obj_val, F_full, org_indices, writer):
-	l = F.shape[1] - len(org_indices)
+	l = F.shape[1]
+	if org_indices is not None:
+		l = F.shape[1] - len(org_indices)
 	r = F_full.shape[1] - l
 	n, _ = C.shape
 	
-	c_org_indices = [ i for i in xrange(0, l) ] + org_indices
-	C_out = -1*np.ones((n, l+r), dtype = float) # C with segments that were removed inserted back in with avg from F_full
-	C_out[:, c_org_indices] = C[:, :]           #   -1 is an indicator that this column should be omitted in validation
+	if org_indices is not None:
+		c_org_indices = [ i for i in xrange(0, l) ] + org_indices
+		C_out = -1*np.ones((n, l+r), dtype = float) # C with segments that were removed inserted back in with avg from F_full
+		C_out[:, c_org_indices] = C[:, :]           #   -1 is an indicator that this column should be omitted in validation
+	else:
+		C_out = C
 
-	fnames = [ d + fname for fname in ['U.tsv', 'C.tsv', 'T.dot', 'F.tsv', 'obj_val.txt', 'unmixed.vcf', 'unmixed.xml'] ]
+	fnames = [ d + fname for fname in ['U.tsv', 'C.tsv', 'T.dot', 'F.tsv', 'W.tsv', 'obj_val.txt', 'unmixed.vcf', 'unmixed.xml'] ]
 	for fname in fnames:
 		fm.touch(fname)
 	np.savetxt(fnames[0], U, delimiter = '\t', fmt = '%.8f')
 	np.savetxt(fnames[1], C_out, delimiter = '\t', fmt = '%.8f')
 	np.savetxt(fnames[3], F_full, delimiter = '\t', fmt = '%.8f')
-	np.savetxt(fnames[4], np.array([obj_val]), delimiter = '\t', fmt = '%.8f')
-	writer.write(open(fnames[5], 'w'))
+	np.savetxt(fnames[4], W, delimiter = '\t', fmt = '%.8f')
+	np.savetxt(fnames[5], np.array([obj_val]), delimiter = '\t', fmt = '%.8f')
+	writer.write(open(fnames[6], 'w'))
 	dot = to_dot(E, R, W)
 	open(fnames[2], 'w').write(dot.source) # write tree T in dot format
 	dot.render(d + 'T')                    # display tree T in .png
-	write_xml(fnames[6], E, C, l)
+	write_xml(fnames[7], E, C, l)
 
 #  input: E (np.array of int) [2n-1, 2n-1] 0 if no edge, 1 if edge between nodes i and j
 #         R (np.array of int) [2n-1, 2n-1] cost of each edge in the tree
-#         W (np.array of int) [2n-1, 2n-1] number of breakpoints appearing along each edge in tree
+#         W (np.array of int) [2n-1, l] W[i, b] == 1 iff breakpoint b appears at node v_i. 0 otherwise
 # output: dot (graphviz.dot.Digraph) directed tree representation of E
 def to_dot(E, R, W):
 	N = len(E)
@@ -219,7 +229,8 @@ def to_dot(E, R, W):
 	for i in xrange(N-1, -1, -1):
 		for j in xrange(N-1, -1, -1):
 			if int(E[i, j]) == 1:
-				edge_label = ' ' + str(int(R[i, j])) + '/' + str(int(W[i, j]) / 2)
+				num_breakpoints = sum(W[i, :])
+				edge_label = ' ' + str(int(R[i, j])) + '/' + str(num_breakpoints)
 				dot.node(str(j))
 				dot.edge(str(i), str(j), label = edge_label)
 	return dot

@@ -77,7 +77,7 @@ def gen_U(m, n):
 #   T E S T S   #
 # # # # # # # # #
 
-def test_get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters = 5, timelimit = 100):
+def test_get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters = 5, timelimit = 10):
 	printnow('\ntest_get_UCE starting\n')
 	U, C, E, R, W, obj_val, err_msg = sv.get_UCE(F, Q, G, A, H, n, c_max, lamb1, lamb2, max_iters, timelimit)
 
@@ -99,7 +99,7 @@ def test_get_C(F, Q, G, A, H, n, c_max, lamb1, lamb2):
 	F[0, l+1] = 0.0 # test what happens if a segment has zero copy number
 	U = gen_U(m, n)
 	printnow('\ntest_get_C starting\n') # time limit of 10 seconds
-	obj_val, C, E, R, W, err_msg = sv.get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, 100)
+	obj_val, C, E, R, W, err_msg = sv.get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, 10)
 
 	_print_results(err_msg, U, C, E, R, W, obj_val)
 

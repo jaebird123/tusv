@@ -165,12 +165,13 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, time_limit = None):
 	C = _as_solved(C)
 	E = _as_solved(E)
 	R = _as_solved(R)
-	W_all = np.zeros((N, N))
-	for i in xrange(0, N):
-		for j in xrange(0, N):
-			W_all[i, j] = sum([ W[i, j, b].X for b in xrange(0, l) ])
+	A = _as_solved(A)
+	W_node = np.zeros((N, l), dtype = int)
+	for j in xrange(0, N):
+		for b in xrange(0, l):
+			W_node[j, b] = sum([ int(W[i, j, b].X) for i in xrange(0, N) ])
 
-	return mod.objVal, C, E, R, W_all, None
+	return mod.objVal, C, E, R, W_node, None
 
 
 # # # # # # # # # # # # # # # # # # # # # #
@@ -239,8 +240,7 @@ def _set_bp_appearance_constraints(mod, C_bin, W, E, G, n, l):
 				for t in xrange(0, l): # breakpoint pairs appear on same edge
 					mod.addConstr(_get_abs(mod, W[i, j, s] - W[i, j, t]) <= 1 - G[s, t])
 	for b in xrange(0, l):     # breakpoints only appear once in the tree
-		tmp = [ W[i, j, b] for i in xrange(0, N) for j in xrange(0, n) ]
-		mod.addConstr(gp.quicksum(tmp) == 1)
+		mod.addConstr(gp.quicksum([ W[i, j, b] for i in xrange(0, N) for j in xrange(0, N) ]) == 1)
 
 def _set_ancestry_condition_constraints(mod, C_bin, A, W, U, m, N, l):
 	W_node = _get_gp_arr_bin_var(mod, N, l)
@@ -588,9 +588,9 @@ def _get_gp_3D_arr_bin_var(mod, l, m, n):
 
 def _get_abs(mod, x):
 	x_abs = mod.addVar(vtype = gp.GRB.INTEGER)
-	mod.addConstr(x_abs, gp.GRB.GREATER_EQUAL, x)
-	mod.addConstr(x_abs, gp.GRB.GREATER_EQUAL, 0)
 	# mod.update() # <- removing this drastically speeds up solver
+	mod.addConstr(x_abs, gp.GRB.GREATER_EQUAL, x)
+	mod.addConstr(x_abs, gp.GRB.GREATER_EQUAL, -1*x)
 	return x_abs
 
 def _get_bin_rep(mod, X, vmax):
