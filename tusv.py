@@ -229,7 +229,7 @@ def to_dot(E, R, W):
 	for i in xrange(N-1, -1, -1):
 		for j in xrange(N-1, -1, -1):
 			if int(E[i, j]) == 1:
-				num_breakpoints = sum(W[i, :])
+				num_breakpoints = sum(W[j, :])
 				edge_label = ' ' + str(int(R[i, j])) + '/' + str(num_breakpoints)
 				dot.node(str(j))
 				dot.edge(str(i), str(j), label = edge_label)
