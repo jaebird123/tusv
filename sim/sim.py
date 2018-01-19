@@ -421,43 +421,37 @@ def generate_f(u, c):
 #           val: (mate_chrom, mate_pos, mate_isLeft)
 def get_a_h_mate_dict(tree, n, constants_dict):
 	l, sv_cn_idx_dict = get_bp_copy_num_idx_dict(tree, n, constants_dict)
-	a = make_2d_list(len(tree.node_list), l)
-	h = make_2d_list(len(tree.node_list), l)
-	mate_dict = dict()
-	for idx in tree.node_list:
-		row = idx - 1
-		temp_bp_dict = tree.idx_node_dict[idx].geneProf.get_sv_read_nums_dict(constants_dict['cov'], constants_dict['read_len'])
-		for chrom in temp_bp_dict:
-			for (pos, isLeft) in temp_bp_dict[chrom]:
-				temp_a = temp_bp_dict[chrom][(pos, isLeft)]["mated_reads"]
-				temp_h = temp_bp_dict[chrom][(pos, isLeft)]["total_reads"]
+	a, h = make_2d_list(len(tree.node_list), l), make_2d_list(len(tree.node_list), l)
 
-				col = sv_cn_idx_dict[chrom][(pos, isLeft)]
-				a[row][col] = temp_a
-				h[row][col] = temp_h
+	mate_dict = {}
+	for node_name in tree.node_list:
+		gene_prof = tree.idx_node_dict[node_name].geneProf
+		sv_dict = gene_prof.get_sv_read_nums_dict(constants_dict['cov'], constants_dict['read_len'])
+		for chrm in sv_dict.keys():
+			for cur_pos, cur_is_left in sv_dict[chrm]:
+				mat_pos, mat_is_left = sv_dict[chrm][(cur_pos, cur_is_left)]['mate']
+				cur_key, mat_key = (chrm, cur_pos, cur_is_left), (chrm, mat_pos, mat_is_left)
+				if cur_key not in mate_dict:
+					mate_dict[cur_key] = mat_key
+				elif mate_dict[cur_key] != mat_key:
+					print 'There was an error generating SVs. Rerun sim.py until there are no errors.'
+					print 'cur_key:\t' + str(cur_key)
+					print 'mat_key:\t' + str(mat_key)
+					print 'cur_key was already mated with:\t' + str(mate_dict[cur_key])
+					exit()
+				if mat_key not in mate_dict:
+					mate_dict[mat_key] = cur_key
+				elif mate_dict[mat_key] != cur_key:
+					print 'There was an error generating SVs. Rerun sim.py until there are no errors.'
+					print 'cur_key:\t' + str(cur_key)
+					print 'mat_key:\t' + str(mat_key)
+					print 'mat_key was already mated with:\t' + str(mate_dict[mat_key])
+					exit()
 
-				(mate_pos, mate_isLeft) = temp_bp_dict[chrom][(pos, isLeft)]["mate"]
-
-				if (chrom, pos, isLeft) in mate_dict and mate_dict[(chrom, pos, isLeft)] != (chrom, mate_pos, mate_isLeft):
-
-					if (chrom, mate_pos, mate_isLeft) in mate_dict:
-						if mate_dict[(chrom, mate_pos, mate_isLeft)] == (chrom, pos, isLeft):
-							mate_dict[(chrom, pos, isLeft)] = (chrom, mate_pos, mate_isLeft)
-
-						elif mate_dict[mate_dict[(chrom, mate_pos, mate_isLeft)]] == (chrom, mate_pos, mate_isLeft):
-							print 'node', idx, 'chrom', chrom, 'pos', pos, 'isLeft', isLeft, 'mate sv is already matched !!!!!'
-
-					else:
-						if mate_dict[mate_dict[(chrom, pos, isLeft)]] == (chrom, pos, isLeft):
-							print 'node', idx, 'chrom', chrom, 'pos', pos, 'isLeft', isLeft, 'this sv is already matched !!!!!'
-						else:
-							mate_dict[(chrom, pos, isLeft)] = (chrom, mate_pos, mate_isLeft)
-
-				else:
-					mate_dict[(chrom, pos, isLeft)] = (chrom, mate_pos, mate_isLeft)
-
+				j = sv_cn_idx_dict[chrm][(cur_pos, cur_is_left)]
+				a[node_name - 1][j] = sv_dict[chrm][(cur_pos, cur_is_left)]['mated_reads']
+				h[node_name - 1][j] = sv_dict[chrm][(cur_pos, cur_is_left)]['total_reads']
 	return a, h, mate_dict
-
 
 # given a matrix, save as tsv file
 def output_tsv(mtx, output_file, output_folder):
