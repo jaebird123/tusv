@@ -54,8 +54,13 @@ def main(argv):
 	for subdir_name in subdir_names:
 		in_dir = args['input_directory'] + subdir_name
 		out_dir = args['output_directory'] + subdir_name
-		pt.printnow('\nrunning ' + subdir_name)
-		tusv.unmix(in_dir, out_dir, args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'], args['metadata_file'], args['num_subsamples'])
+
+		if not os.listdir(out_dir): # empty directory
+			pt.printnow('#\n' * 5 + '\nrunning ' + subdir_name + '\n\n' + '#\n' * 5 + '\n')
+			tusv.unmix(in_dir, out_dir, args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'], args['metadata_file'], args['num_subsamples'])
+		else:
+			pt.printnow('#\n' * 5 + '\n\nALREADY RAN ' + subdir_name + '\n\n' + '#\n' * 5 + '\n')
+
 		score_Cb, score_Cs, score_C, score_U, dist_T, score_FUC, obj_val = vd.get_scores(out_dir, in_dir)
 		pt.printnow(' Cb: ' + str(score_Cb))
 		pt.printnow(' Cs: ' + str(score_Cs))
