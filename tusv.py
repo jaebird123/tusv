@@ -51,15 +51,23 @@ STR_DTYPE = 'S50'
 
 def main(argv):
 	args = get_args(argv)
-	unmix(args['input_directory'], args['output_directory'], args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'], args['metadata_file'], args['num_subsamples'])
+	unmix(args['input_directory'], args['output_directory'], args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'], args['metadata_file'], args['num_subsamples'], args['overide_lambdas'])
 
 #  input: num_seg_subsamples (int or None) number of segments to include in deconvolution. these are
 #           in addition to any segments contining an SV as thos are manditory for the SV. None is all segments
-def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, num_processors, time_limit, metadata_fname, num_seg_subsamples):
+def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, num_processors, time_limit, metadata_fname, num_seg_subsamples, should_overide_lambdas):
+
 	F_full, Q, G, A, H, bp_attr, cv_attr = gm.get_mats(in_dir)
 	check_valid_input(Q, G, A, H)
 
 	F, Q, org_indxs = randomly_remove_segments(F_full, Q, num_seg_subsamples)
+
+	# replace lambda1 and lambda2 with input derived values if should_orveride_lamdas was specified
+	if should_overide_lambdas:
+		m = len(F)
+		l, r = Q.shape
+		lamb1 = float(l + r) / float(r) * float(m) / float(2 * (n-1) )
+		lamb2 = float(l + r) / float(l)
 
 	Us, Cs, Es, obj_vals, Rs, Ws = [], [], [], [], [], []
 	num_complete = 0
@@ -319,6 +327,7 @@ def set_non_dir_args(parser):
 	parser.add_argument('-m', '--time_limit', type = int, help = 'maximum time (in seconds) allowed for a single iteration of the cordinate descent algorithm')
 	parser.add_argument('-s', '--num_subsamples', type = int, default = None, help = 'number of segments (in addition to those containing breakpoints) that are to be randomly kept for deconvolution. default keeps all segments.')
 	parser.add_argument('-d', '--metadata_file', default = METADATA_FNAME, type = lambda x: fm.is_valid_file(parser, x), help = 'file containing metadata information for output .vcf file')
+	parser.add_argument('-b', '--overide_lambdas', action = 'store_true', help = 'specify this argument if you would like the parameters lambda1 and lambda2 to be set proportional to the input data set')
 
 # # # # # # # # # # # # # # # # # # # # # # # # #
 #   C A L L   T O   M A I N   F U N C T I O N   #
