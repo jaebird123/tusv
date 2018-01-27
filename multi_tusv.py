@@ -40,9 +40,12 @@ def main(argv):
 		sub_out_dir = out_dir + subdir_name
 		pt.printnow(''.join([ '\n' for _ in xrange(0, 10) ]))
 		pt.printnow(' '.join([ '=' for _ in xrange(0, 30) ]))
-		pt.printnow('\tRunning: ' + subdir_name)
+		msg = 'Running: ' + subdir_name if not os.listdir(sub_out_dir) else 'ALREADY RAN: ' + subdir_name
+		pt.printnow('\t' + msg)
 		pt.printnow(' '.join([ '=' for _ in xrange(0, 30) ]))
-		tusv.unmix(sub_in_dir, sub_out_dir, args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'], args['metadata_file'], args['num_subsamples'], args['overide_lambdas'])
+
+		if not os.listdir(sub_out_dir): # directory is empty
+			tusv.unmix(sub_in_dir, sub_out_dir, args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'], args['metadata_file'], args['num_subsamples'], args['overide_lambdas'])
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #   C O M M A N D   L I N E   A R G U M E N T   F U N C T I O N S   #

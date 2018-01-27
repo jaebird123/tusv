@@ -57,7 +57,7 @@ def main(argv):
 
 		if not os.listdir(out_dir): # empty directory
 			pt.printnow('#\n' * 5 + '\nrunning ' + subdir_name + '\n\n' + '#\n' * 5 + '\n')
-			tusv.unmix(in_dir, out_dir, args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'], args['metadata_file'], args['num_subsamples'])
+			tusv.unmix(in_dir, out_dir, args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'], args['metadata_file'], args['num_subsamples'], args['overide_lambdas'])
 		else:
 			pt.printnow('#\n' * 5 + '\n\nALREADY RAN ' + subdir_name + '\n\n' + '#\n' * 5 + '\n')
 
