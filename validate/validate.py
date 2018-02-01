@@ -15,11 +15,11 @@ import sys      # for command line arguments
 import os       # for manipulating files and folders
 import argparse # for command line arguments
 import numpy as np
-from ete3 import Tree # for calculatin robinson foulds distance
 from sympy.utilities.iterables import multiset_permutations # permuting rows in C
 
 sys.path.insert(0, '../help/')
 import file_manager as fm   # sanitizes file and directory arguments
+import post_processing as pp
 
 
 # # # # # # # # # # # # #
@@ -55,8 +55,8 @@ def main(argv):
 #         obj_val (float) objective value returned by tusv.py
 #         dist (int) Robinson - Foulds distance between expected and actual tree
 def get_scores(act_dir, exp_dir):
-	Ca, Ua, Ta = get_CUT(act_dir)
-	Ce, Ue, Te = get_CUT(exp_dir)
+	Ca, Ua, Ta = pp.get_CUT(act_dir)
+	Ce, Ue, Te = pp.get_CUT(exp_dir)
 	m, N, l, r = get_mNlr(Ca, Ua)
 
 	F = get_F(act_dir)
@@ -146,36 +146,11 @@ def get_mNlr(C, U):
 #   F I L E S   T O   A R R A Y S   #
 # # # # # # # # # # # # # # # # # # #
 
-#  input: dirname (str) name of directory where FNAMES are located
-# output: C (np.array of int) [N, l+r] c_k,s is copy number of segment or breakpoint s in clone k
-#         U (np.array of float) [m, N] u_p,k is percent of clone k making up sample p
-#         T (ete3.coretype.tree.TreeNode) directed tree representing phylogeny
-def get_CUT(dirname):
-	C = np.genfromtxt(dirname + FNAMES[0], dtype = float)
-	U = np.genfromtxt(dirname + FNAMES[1], dtype = float)
-	T = get_T(open(dirname + FNAMES[2]))
-	return C, U, T
-
 def get_F(dirname):
 	return np.genfromtxt(dirname + FNAMES[3], dtype = float)
 
 def get_obj_val(dirname):
 	return np.genfromtxt(dirname + FNAMES[4], dtype = float)
-
-def get_T(file):
-	txt = file.read()
-	lines = txt.split('\n')
-	lines.pop(0)
-	lines.pop(len(lines)-1)
-	lines = [ line.replace('\t', '') for line in lines ]
-	lines = [ line.replace(' ', '') for line in lines ]
-
-	parent_child_table = []
-	for line in lines:
-		if '->' in line:
-			i, j = line.split('->')
-			parent_child_table.append((i, j, 1.0))
-	return Tree.from_parent_child_table(parent_child_table)
 	
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
