@@ -30,6 +30,15 @@ def is_valid_file(parser, arg):
 	else:
 		return str(arg)
 
+def append_to_file(fname, msg):
+	touch(fname)
+	with open(fname, "a") as f:
+		f.write(msg)
+
+def mkdir(dname):
+	if not os.path.exists(dname):
+		os.makedirs(dname)
+
 # returns string as directory. adds error to parser if no valid directory
 def valid_dir(parser, arg):
 	if not os.path.exists(arg):

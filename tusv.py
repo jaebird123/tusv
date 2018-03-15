@@ -17,6 +17,7 @@ import random
 import numpy as np
 import multiprocessing as mp
 
+from datetime import datetime
 from graphviz import Digraph
 from ete2 import Tree          # for creating phylogenetic trees for .xml output
 from Bio import Phylo          # for creating phylogenies to export as phylo .xml files
@@ -51,6 +52,7 @@ STR_DTYPE = 'S50'
 
 def main(argv):
 	args = get_args(argv)
+	write_readme(args['output_directory'], args)
 	unmix(args['input_directory'], args['output_directory'], args['num_leaves'], args['c_max'], args['lambda1'], args['lambda2'], args['restart_iters'], args['cord_desc_iters'], args['processors'], args['time_limit'], args['metadata_file'], args['num_subsamples'], args['overide_lambdas'])
 
 #  input: num_seg_subsamples (int or None) number of segments to include in deconvolution. these are
@@ -91,6 +93,23 @@ def unmix(in_dir, out_dir, n, c_max, lamb1, lamb2, num_restarts, num_cd_iters, n
 	writer = build_vcf_writer(F_full, Cs[best_i], org_indxs, G, bp_attr, cv_attr, metadata_fname)
 
 	write_to_files(out_dir, Us[best_i], Cs[best_i], Es[best_i], Rs[best_i], Ws[best_i], F, obj_vals[best_i], F_full, org_indxs, writer)
+
+# creates a readme file with the command in it. 
+def write_readme(dname, args, script_name = os.path.basename(__file__)):
+	readme_fname = dname + 'README.txt'
+	open(readme_fname, 'w').close() # clear readme
+	msg =  '    executed: ' + str(datetime.now()) + '\n'
+	msg += 'command used:\n'
+	msg += '\t```\n'
+	msg += '\t' + ' '.join(['python', script_name] + [ '--' + str(k) + ' ' + _arg_val_to_str(v) for k, v in args.iteritems() ]) + '\n'
+	msg += '\t```\n'
+	fm.append_to_file(readme_fname, msg)
+	return readme_fname
+
+def _arg_val_to_str(v):
+	if isinstance(v, list):
+		return ' '.join([ str(x) for x in v ])
+	return str(v)
 
 #  input: F (np.array) [m, l+r] mixed copy number of l breakpoints, r segments across m samples
 #         Q (np.array) [l, r] binary indicator that breakpoint is in segment
@@ -223,7 +242,8 @@ def write_to_files(d, U, C, E, R, W, F, obj_val, F_full, org_indices, writer):
 	writer.write(open(fnames[6], 'w'))
 	dot = to_dot(E, R, W)
 	open(fnames[2], 'w').write(dot.source) # write tree T in dot format
-	dot.render(d + 'T')                    # display tree T in .png
+	dot.format = 'svg'
+	dot.render(d + 'T')                    # display tree T in .svg
 	write_xml(fnames[7], E, C, l)
 
 #  input: E (np.array of int) [2n-1, 2n-1] 0 if no edge, 1 if edge between nodes i and j

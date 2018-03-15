@@ -33,12 +33,12 @@ import tusv as tusv
 
 FNAMES = ['C.tsv', 'U.tsv', 'T.dot'] # these files must be in 'actual' and 'expected' dirs. MUST BE IN THIS ORDER
 EXTENSION = '.vcf'
-REPORT_FNAME = 'report.txt'
 MAX_NUM_LEAVES = 10
 MAX_COPY_NUM = 20
 MAX_CORD_DESC_ITERS = 1000
 MAX_RESTART_ITERS = 1000
 NUM_CORES = mp.cpu_count()
+STR_DTYPE = '|S30'
 
 
 # # # # # # # # # # # # #
@@ -49,8 +49,9 @@ def main(argv):
 	args = get_args(argv)
 	fm.cp_file_structure_to_out_dir(args['input_directory'], args['output_directory'])
 	subdir_names = fm.get_subdir_names(args['input_directory'])
+	tusv.write_readme(args['output_directory'], args, os.path.basename(__file__))
 
-	CBs, CSs, Cs, Us, Ts, FUCs, objs = [], [], [], [], [], [], [] # scores for copy number of breakpoints, segments, usages and phylogeny
+	CBs, CSs, Cs, Us, Ts, FUCs, objs, ls, rs = [], [], [], [], [], [], [], [], [] # scores for copy number of breakpoints, segments, usages and phylogeny
 	for subdir_name in subdir_names:
 		in_dir = args['input_directory'] + subdir_name
 		out_dir = args['output_directory'] + subdir_name
@@ -61,7 +62,7 @@ def main(argv):
 		else:
 			pt.printnow('#\n' * 5 + '\n\nALREADY RAN ' + subdir_name + '\n\n' + '#\n' * 5 + '\n')
 
-		score_Cb, score_Cs, score_C, score_U, dist_T, score_FUC, obj_val = vd.get_scores(out_dir, in_dir)
+		score_Cb, score_Cs, score_C, score_U, dist_T, score_FUC, obj_val, l, r = vd.get_scores(out_dir, in_dir)
 		pt.printnow(' Cb: ' + str(score_Cb))
 		pt.printnow(' Cs: ' + str(score_Cs))
 		pt.printnow('  C: ' + str(score_C))
@@ -77,11 +78,27 @@ def main(argv):
 		Ts.append(dist_T)
 		FUCs.append(score_FUC)
 		objs.append(obj_val)
+		ls.append(l)
+		rs.append(r)
 
-	report(args['input_directory'], args['output_directory'], CBs, CSs, Cs, Us, Ts, FUCs, objs)
+	report(args['input_directory'], args['output_directory'], CBs, CSs, Cs, Us, Ts, FUCs, objs, ls, rs, subdir_names)
 
-def report(in_dir, out_dir, CBs, CSs, Cs, Us, Ts, FUCs, obj_vals):
-	fname = out_dir + REPORT_FNAME
+def report(in_dir, out_dir, CBs, CSs, Cs, Us, Ts, FUCs, obj_vals, ls, rs, subdir_names):
+	patient_names = [ os.path.basename(os.path.normpath(dname)) for dname in subdir_names ]
+	out_dname = out_dir + 'validation_results/'
+	fm.mkdir(out_dname)
+	
+	# put all scores in .tsv 
+	fname = out_dname + 'scores.tsv'
+	fm.touch(fname)
+	X = np.array([CBs, CSs, Cs, Us, Ts, FUCs, obj_vals, ls, rs], dtype = float).T.astype(STR_DTYPE)
+	row_header = np.array(['C_bp_score', 'C_sg_score', 'C_tot_score', 'U_score', 'T_score', 'F_score', 'obj_val', 'l', 'r']).astype(STR_DTYPE)
+	col_header = np.array([''] + patient_names).astype(STR_DTYPE)
+	X = np.column_stack((col_header, np.ma.row_stack((row_header, X))))
+	np.savetxt(fname, X, delimiter = '\t', fmt = '%s')
+
+
+	fname = out_dname + 'report.txt'
 	fm.touch(fname)
 
 	orig_stdout = sys.stdout
