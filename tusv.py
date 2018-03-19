@@ -237,13 +237,13 @@ def write_to_files(d, U, C, E, R, W, F, obj_val, F_full, org_indices, writer):
 	np.savetxt(fnames[0], U, delimiter = '\t', fmt = '%.8f')
 	np.savetxt(fnames[1], C_out, delimiter = '\t', fmt = '%.8f')
 	np.savetxt(fnames[3], F_full, delimiter = '\t', fmt = '%.8f')
-	np.savetxt(fnames[4], W, delimiter = '\t', fmt = '%.8f')
+	# np.savetxt(fnames[4], W, delimiter = '\t', fmt = '%.8f')
 	np.savetxt(fnames[5], np.array([obj_val]), delimiter = '\t', fmt = '%.8f')
 	writer.write(open(fnames[6], 'w'))
-	dot = to_dot(E, R, W)
-	open(fnames[2], 'w').write(dot.source) # write tree T in dot format
-	dot.format = 'svg'
-	dot.render(d + 'T')                    # display tree T in .svg
+	# dot = to_dot(E, R, W)
+	# open(fnames[2], 'w').write(dot.source) # write tree T in dot format
+	# dot.format = 'svg'
+	# dot.render(d + 'T')                    # display tree T in .svg
 	write_xml(fnames[7], E, C, l)
 
 #  input: E (np.array of int) [2n-1, 2n-1] 0 if no edge, 1 if edge between nodes i and j

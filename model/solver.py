@@ -135,7 +135,7 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, time_limit = None):
 
 	C = _get_gp_arr_int_var(mod, N, l + r, c_max)
 	E = _get_gp_arr_bin_var(mod, N, N)
-	A = _get_gp_arr_bin_var(mod, N, N)            # ancestry matrix
+	# A = _get_gp_arr_bin_var(mod, N, N)            # ancestry matrix
 	R = _get_gp_arr_int_var(mod, N, N, c_max * r) # rho. cost across each edge
 	S = _get_gp_arr_cnt_var(mod, m, l, c_max)     # ess. bpf penalty for each bp in each sample
 	W = _get_gp_3D_arr_bin_var(mod, N, N, l)
@@ -145,14 +145,14 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, time_limit = None):
 	F_seg = F[:, l:].dot(np.transpose(Q)) # [m, l] mixed copy number of segment containing breakpoint
 	Pi = np_divide_0(F[:, :l], F_seg)     # [m, l] expected bpf (ratio of bp copy num to segment copy num)
 
-	_set_copy_num_constraints(mod, C, n, l, r)
-	_set_tree_constraints(mod, E, n)
-	_set_ancestry_constraints(mod, A, E, N)
-	_set_cost_constraints(mod, R, C, E, n, l, r, c_max)
-	_set_bp_appearance_constraints(mod, C_bin, W, E, G, n, l)
-	_set_ancestry_condition_constraints(mod, C_bin, A, W, U, m, N, l)
-	_set_segment_copy_num_constraints(mod, Gam, C, Q, W, m, n, l, r)
-	_set_bpf_penalty(mod, S, Pi, U, C, Gam)
+	# _set_copy_num_constraints(mod, C, n, l, r)
+	# _set_tree_constraints(mod, E, n)
+	# _set_ancestry_constraints(mod, A, E, N)
+	# _set_cost_constraints(mod, R, C, E, n, l, r, c_max)
+	# _set_bp_appearance_constraints(mod, C_bin, W, E, G, n, l)
+	# _set_ancestry_condition_constraints(mod, C_bin, A, W, U, m, N, l)
+	# _set_segment_copy_num_constraints(mod, Gam, C, Q, W, m, n, l, r)
+	# _set_bpf_penalty(mod, S, Pi, U, C, Gam)
 
 	mod.setObjective(_get_objective(mod, F, U, C, R, S, lamb1, lamb2), gp.GRB.MINIMIZE)
 
@@ -165,7 +165,7 @@ def get_C(F, U, Q, G, A, H, n, c_max, lamb1, lamb2, time_limit = None):
 	C = _as_solved(C)
 	E = _as_solved(E)
 	R = _as_solved(R)
-	A = _as_solved(A)
+	# A = _as_solved(A)
 	W_node = np.zeros((N, l), dtype = int)
 	for j in xrange(0, N):
 		for b in xrange(0, l):

@@ -29,8 +29,8 @@ from os.path import isfile, join
 def get_CUT(dirname):
 	C = np.genfromtxt(dirname + 'C.tsv', dtype = float)
 	U = np.genfromtxt(dirname + 'U.tsv', dtype = float)
-	T = _get_T(open(dirname + 'T.dot'))
-	return C, U, T
+	# T = _get_T(open(dirname + 'T.dot'))
+	return C, U, None
 
 
 # # # # # # # # # # #

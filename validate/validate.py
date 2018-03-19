@@ -78,9 +78,9 @@ def get_scores(act_dir, exp_dir):
 	else:
 		score_U = get_L1_score(Ua[:, perm], Ue)
 
-	reorder_nodes(Ta, perm)
+	# reorder_nodes(Ta, perm)
 
-	dist_T = Ta.robinson_foulds(Te)[0] # continue here with trying to permute nodes to match better
+	# dist_T = Ta.robinson_foulds(Te)[0] # continue here with trying to permute nodes to match better
 
 	# calculate |F - U*C|
 	if Ua.ndim == 1:
@@ -88,7 +88,7 @@ def get_scores(act_dir, exp_dir):
 	else:
 		score_FUC = np.sum(np.abs(F - np.dot(Ua[:, perm], Ca[perm, :])))
 	
-	return score_Cb, score_Cs, score_C, score_U, dist_T, score_FUC, obj_val, l, r
+	return score_Cb, score_Cs, score_C, score_U, 9999, score_FUC, obj_val, l, r
 
 def reorder_nodes(T, perm):
 	for node in T.traverse():
